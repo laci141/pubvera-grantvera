@@ -1,0 +1,6 @@
+bin/*.exe
+bin/server*
+*.bak
+data/
+.env
+.DS_Store

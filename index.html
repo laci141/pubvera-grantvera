@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Research Grants Finder — open federal funding, keyless</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: linear-gradient(135deg, #0f0f0f 0%, #16201a 100%);
+      color: #e0e0e0;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    /* Colored background BEHIND the glass panels so blur is visible */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(circle at 15% 20%, rgba(0, 212, 255, 0.18) 0%, transparent 40%),
+        radial-gradient(circle at 85% 30%, rgba(124, 58, 237, 0.16) 0%, transparent 45%),
+        radial-gradient(circle at 50% 85%, rgba(34, 197, 94, 0.16) 0%, transparent 40%),
+        linear-gradient(135deg, #0f0f0f 0%, #16201a 100%);
+    }
+
+    /* GLASS PANEL */
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1rem;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    /* HERO */
+    .hero {
+      min-height: 50vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 3rem 2rem 2rem;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: 3.3rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(90deg, #00d4ff, #22c55e);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p { font-size: 1.15rem; color: #aaa; max-width: 740px; margin-bottom: 2rem; }
+    .chips { display: flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center; }
+    .chip {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 2rem;
+      padding: 0.5rem 1.2rem;
+      cursor: pointer;
+      color: #ccc;
+      font-size: 0.9rem;
+      transition: all 0.25s ease;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+    .chip:hover { border-color: #00d4ff; color: #00d4ff; transform: translateY(-2px); }
+
+    /* BENTO GRID */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+      padding: 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .bento-card {
+      padding: 2rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      min-height: 210px;
+    }
+    .bento-card:hover {
+      transform: translateY(-8px);
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    }
+    .bento-card.open { --color: #00d4ff; border-left: 4px solid var(--color); }
+    .bento-card.nih  { --color: #7c3aed; border-left: 4px solid var(--color); }
+    .bento-card.nsf  { --color: #22c55e; border-left: 4px solid var(--color); }
+    .bento-icon { font-size: 3rem; margin-bottom: 0.75rem; }
+    .bento-label { font-size: 1.3rem; font-weight: 600; color: var(--color); margin-bottom: 0.5rem; }
+    .bento-desc { font-size: 0.92rem; color: #aaa; }
+
+    /* MODAL */
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      animation: fadeIn 0.3s ease;
+    }
+    .modal.active { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal-content {
+      background: rgba(22, 32, 26, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1.5rem;
+      padding: 2rem;
+      max-width: 92%;
+      width: 860px;
+      max-height: 85vh;
+      overflow-y: auto;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+      animation: slideUp 0.3s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(50px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    .modal-header h2 { font-size: 1.7rem; color: var(--color, #00d4ff); }
+    .close-btn { background: none; border: none; color: #999; font-size: 2rem; cursor: pointer; line-height: 1; }
+    .close-btn:hover { color: #e0e0e0; }
+
+    /* FORM */
+    .form-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .form-group { margin-bottom: 1.25rem; flex: 1; min-width: 180px; }
+    .form-group label { display: block; margin-bottom: 0.5rem; color: #bbb; font-size: 0.9rem; font-weight: 500; }
+    .form-group input[type="text"], .form-group input[type="date"], .form-group select {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 0.5rem;
+      padding: 0.7rem;
+      color: #e0e0e0;
+      font-size: 1rem;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: rgba(0, 212, 255, 0.5);
+      box-shadow: inset 0 0 1rem rgba(0, 212, 255, 0.1);
+    }
+    .form-group select option { background: #16201a; }
+    .form-group input[type="range"] { width: 100%; accent-color: #00d4ff; cursor: pointer; }
+    .limit-val { color: #00d4ff; font-weight: 600; }
+    .btn {
+      background: linear-gradient(90deg, #00d4ff, #22c55e);
+      border: none; color: #000;
+      padding: 0.75rem 2rem;
+      border-radius: 0.5rem;
+      font-weight: 600; cursor: pointer;
+      transition: all 0.3s ease; font-size: 1rem;
+    }
+    .btn:hover { transform: scale(1.05); box-shadow: 0 8px 24px rgba(0, 212, 255, 0.3); }
+    .btn:disabled { opacity: 0.5; cursor: wait; transform: none; }
+
+    /* RESULTS */
+    .results { margin-top: 1.5rem; animation: fadeIn 0.3s ease; }
+    .meta-line { color: #888; font-size: 0.9rem; margin-bottom: 0.75rem; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    th { color: #999; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; }
+    th, td { text-align: left; padding: 0.5rem 0.7rem 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: top; }
+    td.n { color: #666; width: 2rem; }
+    .table-wrap { overflow-x: auto; }
+    .mono { font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; color: #9cc; }
+    /* deadline badges */
+    .dl { display: inline-block; padding: 0.12rem 0.6rem; border-radius: 1rem; font-size: 0.8rem; font-weight: 600; }
+    .dl.red    { background: rgba(239,68,68,0.15);  color: #ef4444; border: 1px solid rgba(239,68,68,0.4); }
+    .dl.yellow { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
+    .dl.gray   { color: #999; }
+    /* money bars */
+    .bar-container { display: flex; align-items: center; gap: 8px; }
+    .bar-number { font-weight: 700; min-width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
+    .bar-chart { height: 14px; border-radius: 4px; flex: 1; max-width: 130px; opacity: 0.85; }
+    .bar-chart.green  { background: linear-gradient(90deg, #22c55e, #86efac); }
+    .bar-chart.yellow { background: linear-gradient(90deg, #fbbf24, #fde68a); }
+    .bar-chart.red    { background: linear-gradient(90deg, #ef4444, #fca5a5); }
+    .bar-chart:hover { opacity: 1; }
+
+    /* LOADING + ERROR */
+    .loading {
+      display: inline-block; width: 22px; height: 22px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #00d4ff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.5rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-box {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      color: #fca5a5;
+      font-size: 0.95rem;
+    }
+
+    footer {
+      text-align: center;
+      padding: 2.5rem 1rem;
+      color: #666;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      margin-top: 2rem;
+      font-size: 0.9rem;
+    }
+
+    /* RESPONSIVE — mobile: stack, full-width modal, blur 11px */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2rem; }
+      .hero p { font-size: 1rem; }
+      .bento-grid { grid-template-columns: 1fr; padding: 1.25rem; }
+      .modal-content { max-width: 100%; width: 100%; margin: 0 0.5rem; padding: 1.5rem; }
+      .glass-panel, .modal-content, .chip {
+        backdrop-filter: blur(11px);
+        -webkit-backdrop-filter: blur(11px);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HERO -->
+  <section class="hero">
+    <h1>💰 Research Grants Finder</h1>
+    <p>Find open federal research funding and see what others got. Grants.gov open opportunities, NIH and NSF awarded history. Keyless, free, always current.</p>
+    <div class="chips">
+      <button class="chip" onclick="openModal('open', 'climate')">Climate</button>
+      <button class="chip" onclick="openModal('nih', 'cancer')">Cancer</button>
+      <button class="chip" onclick="openModal('nsf', 'artificial intelligence')">AI</button>
+    </div>
+  </section>
+
+  <!-- BENTO CARDS -->
+  <section class="bento-grid">
+    <div class="bento-card glass-panel open" onclick="openModal('open')">
+      <div class="bento-icon">💼</div>
+      <div class="bento-label">Open Grants</div>
+      <div class="bento-desc">Find grant opportunities that are open RIGHT NOW from federal agencies.</div>
+    </div>
+    <div class="bento-card glass-panel nih" onclick="openModal('nih')">
+      <div class="bento-icon">📊</div>
+      <div class="bento-label">Awarded NIH Grants</div>
+      <div class="bento-desc">What did NIH actually fund? Search past awards to see typical grant size for your topic.</div>
+    </div>
+    <div class="bento-card glass-panel nsf" onclick="openModal('nsf')">
+      <div class="bento-icon">🔍</div>
+      <div class="bento-label">Awarded NSF Grants</div>
+      <div class="bento-desc">NSF benchmark: what did they fund before? Find similarly-sized awards to estimate your chance.</div>
+    </div>
+  </section>
+
+  <!-- MODAL: OPEN GRANTS -->
+  <div class="modal" id="modal-open" style="--color:#00d4ff">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>💼 Open Grants</h2>
+        <button class="close-btn" onclick="closeModal('open')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label for="open-query">Topic or keywords</label>
+        <input type="text" id="open-query" placeholder="e.g. climate resilience" onkeydown="if(event.key==='Enter')runOpen()">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="open-before">Closing before (optional)</label>
+          <input type="date" id="open-before">
+        </div>
+        <div class="form-group">
+          <label for="open-agency">Agency (optional)</label>
+          <select id="open-agency">
+            <option value="">Any agency</option>
+            <option value="NSF">NSF</option>
+            <option value="HHS">HHS (incl. NIH)</option>
+            <option value="DOD">DOD</option>
+            <option value="DOE">DOE</option>
+            <option value="DOC">DOC (incl. NOAA)</option>
+            <option value="NASA">NASA</option>
+            <option value="EPA">EPA</option>
+            <option value="USDA">USDA</option>
+            <option value="ED">Dept. of Education</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Rows: <span class="limit-val" id="open-rows-val">15</span></label>
+          <input type="range" id="open-rows" min="3" max="50" value="15"
+                 oninput="document.getElementById('open-rows-val').textContent=this.value">
+        </div>
+      </div>
+      <button class="btn" id="open-btn" onclick="runOpen()">Search Open Grants</button>
+      <div class="results" id="open-results"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: NIH -->
+  <div class="modal" id="modal-nih" style="--color:#7c3aed">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>📊 Awarded NIH Grants</h2>
+        <button class="close-btn" onclick="closeModal('nih')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label for="nih-query">Topic or keywords</label>
+        <input type="text" id="nih-query" placeholder="e.g. cancer immunotherapy" onkeydown="if(event.key==='Enter')runNIH()">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Min amount: <span class="limit-val" id="nih-min-val">$0</span></label>
+          <input type="range" id="nih-min" min="0" max="10000000" step="100000" value="0"
+                 oninput="document.getElementById('nih-min-val').textContent=formatMoney(+this.value)">
+        </div>
+        <div class="form-group">
+          <label for="nih-year">Fiscal year</label>
+          <select id="nih-year">
+            <option value="">Any year</option>
+            <option>2024</option><option>2023</option><option>2022</option>
+            <option>2021</option><option>2020</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Rows: <span class="limit-val" id="nih-rows-val">15</span></label>
+          <input type="range" id="nih-rows" min="3" max="50" value="15"
+                 oninput="document.getElementById('nih-rows-val').textContent=this.value">
+        </div>
+      </div>
+      <button class="btn" id="nih-btn" onclick="runNIH()">Search NIH Awards</button>
+      <div class="results" id="nih-results"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: NSF -->
+  <div class="modal" id="modal-nsf" style="--color:#22c55e">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🔍 Awarded NSF Grants</h2>
+        <button class="close-btn" onclick="closeModal('nsf')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label for="nsf-query">Topic or keywords</label>
+        <input type="text" id="nsf-query" placeholder="e.g. quantum computing" onkeydown="if(event.key==='Enter')runNSF()">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Min amount: <span class="limit-val" id="nsf-min-val">$0</span></label>
+          <input type="range" id="nsf-min" min="0" max="10000000" step="100000" value="0"
+                 oninput="document.getElementById('nsf-min-val').textContent=formatMoney(+this.value)">
+        </div>
+        <div class="form-group">
+          <label>Rows: <span class="limit-val" id="nsf-rows-val">15</span></label>
+          <input type="range" id="nsf-rows" min="3" max="50" value="15"
+                 oninput="document.getElementById('nsf-rows-val').textContent=this.value">
+        </div>
+      </div>
+      <button class="btn" id="nsf-btn" onclick="runNSF()">Search NSF Awards</button>
+      <div class="results" id="nsf-results"></div>
+    </div>
+  </div>
+
+  <footer>
+    Data: Grants.gov · NIH RePORTER · NSF Awards — all open, keyless APIs. Not legal or financial advice.
+  </footer>
+
+  <script>
+    'use strict';
+
+    // --- helpers ------------------------------------------------------------
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    // dollars (not cents) → "$1.2M" / "$50K" / "$5,000"
+    function formatMoney(d) {
+      d = Number(d) || 0;
+      if (d >= 1e6) return '$' + (d / 1e6).toFixed(d >= 1e7 ? 0 : 1) + 'M';
+      if (d >= 1e4) return '$' + Math.round(d / 1e3) + 'K';
+      return '$' + d.toLocaleString();
+    }
+    // "07/06/2011" or "2011-07-06" → "Jul 6, 2011"; else pass through
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    function fmtDate(s) {
+      if (!s) return '';
+      let m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+      if (m) return MONTHS[+m[1] - 1] + ' ' + (+m[2]) + ', ' + m[3];
+      m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+      if (m) return MONTHS[+m[2] - 1] + ' ' + (+m[3]) + ', ' + m[1];
+      return s;
+    }
+    function parseDate(s) {
+      if (!s) return null;
+      let m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+      if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
+      m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+      if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+      return null;
+    }
+    // deadline badge: today/past=red, <7 days=yellow, else gray; empty="Ongoing"
+    function closeBadge(s) {
+      if (!s) return '<span class="dl gray">Ongoing</span>';
+      const d = parseDate(s);
+      if (!d) return '<span class="dl gray">' + esc(s) + '</span>';
+      const today = new Date(); today.setHours(0,0,0,0);
+      const days = Math.round((d - today) / 86400000);
+      const label = esc(fmtDate(s));
+      if (days <= 0) return '<span class="dl red">' + label + '</span>';
+      if (days < 7)  return '<span class="dl yellow">' + label + '</span>';
+      return '<span class="dl gray">' + label + '</span>';
+    }
+    // money bar with green/yellow/red tier relative to max
+    function moneyBar(amount, max) {
+      const pct = Math.max(2, Math.round(amount / Math.max(1, max) * 100));
+      const tier = pct >= 66 ? 'green' : pct >= 33 ? 'yellow' : 'red';
+      return '<div class="bar-container"><span class="bar-number">' + formatMoney(amount) + '</span>' +
+             '<div class="bar-chart ' + tier + '" style="width:' + pct + '%"></div></div>';
+    }
+
+    // --- modal plumbing -----------------------------------------------------
+    const MODALS = ['open', 'nih', 'nsf'];
+    function openModal(name, prefill) {
+      MODALS.forEach(closeModal);
+      document.getElementById('modal-' + name).classList.add('active');
+      const input = document.getElementById(name + '-query');
+      if (prefill !== undefined) input.value = prefill;
+      setTimeout(() => input.focus(), 50);
+    }
+    function closeModal(name) {
+      document.getElementById('modal-' + name).classList.remove('active');
+    }
+    MODALS.forEach(name => {
+      document.getElementById('modal-' + name).addEventListener('click', e => {
+        if (e.target === e.currentTarget) closeModal(name);
+      });
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') MODALS.forEach(closeModal);
+    });
+
+    // --- fetch plumbing -----------------------------------------------------
+    async function callApi(path, body, resultsEl, btnEl) {
+      resultsEl.innerHTML = '<p><span class="loading"></span> Fetching live data…</p>';
+      btnEl.disabled = true;
+      try {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch { throw new Error(text.slice(0, 300) || ('HTTP ' + res.status)); }
+        if (!res.ok) throw new Error(data && data.error ? data.error : text.slice(0, 300));
+        return data;
+      } finally {
+        btnEl.disabled = false;
+      }
+    }
+    function showError(el, err) {
+      el.innerHTML = '<div class="error-box">⚠ ' + esc(err && err.message ? err.message : String(err)) + '</div>';
+    }
+
+    // --- OPEN GRANTS ----------------------------------------------------------
+    async function runOpen() {
+      const query = document.getElementById('open-query').value.trim();
+      const out = document.getElementById('open-results');
+      if (!query) { out.innerHTML = '<div class="error-box">Please enter a search query.</div>'; return; }
+      const body = { query, rows: +document.getElementById('open-rows').value };
+      const before = document.getElementById('open-before').value;
+      const agency = document.getElementById('open-agency').value;
+      if (before) body.closing_before = before;
+      if (agency) body.agency = agency;
+      try {
+        const d = await callApi('/api/search', body, out, document.getElementById('open-btn'));
+        const opps = d.opportunities || [];
+        let h = '<p class="meta-line">' + esc((d.totalHits != null ? d.totalHits.toLocaleString() : opps.length)) +
+                ' total hits · showing ' + opps.length + '</p>';
+        if (!opps.length) { h += '<div class="error-box">No open opportunities found.</div>'; }
+        else {
+          h += '<div class="table-wrap"><table><tr><th>#</th><th>Opportunity #</th><th>Title</th><th>Agency</th><th>Open</th><th>Close</th></tr>';
+          opps.forEach((o, i) => {
+            h += '<tr><td class="n">' + (i + 1) + '</td>' +
+                 '<td class="mono">' + esc(o.number) + '</td>' +
+                 '<td>' + esc(o.title) + '</td>' +
+                 '<td>' + esc(o.agency || o.agencyCode || '—') + '</td>' +
+                 '<td>' + esc(fmtDate(o.openDate)) + '</td>' +
+                 '<td>' + closeBadge(o.closeDate) + '</td></tr>';
+          });
+          h += '</table></div>';
+        }
+        out.innerHTML = h;
+      } catch (err) { showError(out, err); }
+    }
+
+    // --- NIH ------------------------------------------------------------------
+    async function runNIH() {
+      const query = document.getElementById('nih-query').value.trim();
+      const out = document.getElementById('nih-results');
+      if (!query) { out.innerHTML = '<div class="error-box">Please enter a search query.</div>'; return; }
+      const body = { query, rows: +document.getElementById('nih-rows').value };
+      const min = +document.getElementById('nih-min').value;
+      const year = document.getElementById('nih-year').value;
+      if (min > 0) body.min_amount = min;
+      if (year) body.year = +year;
+      try {
+        const d = await callApi('/api/nih', body, out, document.getElementById('nih-btn'));
+        const rows = d.projects || [];
+        let h = '<p class="meta-line">' + esc((d.total != null ? d.total.toLocaleString() : rows.length)) +
+                ' total · showing ' + rows.length + '</p>';
+        if (!rows.length) { h += '<div class="error-box">No NIH awards found.</div>'; }
+        else {
+          const max = Math.max(1, ...rows.map(p => p.award_amount || 0));
+          h += '<div class="table-wrap"><table><tr><th>#</th><th>Project #</th><th>Title</th><th>Award</th><th>Year</th><th>PI</th><th>Organization</th></tr>';
+          rows.forEach((p, i) => {
+            h += '<tr><td class="n">' + (i + 1) + '</td>' +
+                 '<td class="mono">' + esc(p.project_num) + '</td>' +
+                 '<td>' + esc(p.project_title) + '</td>' +
+                 '<td>' + moneyBar(p.award_amount || 0, max) + '</td>' +
+                 '<td>' + esc(p.fiscal_year || '—') + '</td>' +
+                 '<td>' + esc((p.contact_pi_name || '').trim()) + '</td>' +
+                 '<td>' + esc(p.organization && p.organization.org_name || '—') + '</td></tr>';
+          });
+          h += '</table></div>';
+        }
+        out.innerHTML = h;
+      } catch (err) { showError(out, err); }
+    }
+
+    // --- NSF ------------------------------------------------------------------
+    async function runNSF() {
+      const query = document.getElementById('nsf-query').value.trim();
+      const out = document.getElementById('nsf-results');
+      if (!query) { out.innerHTML = '<div class="error-box">Please enter a search query.</div>'; return; }
+      const body = { query, rows: +document.getElementById('nsf-rows').value };
+      const min = +document.getElementById('nsf-min').value;
+      if (min > 0) body.min_amount = min;
+      try {
+        const d = await callApi('/api/nsf', body, out, document.getElementById('nsf-btn'));
+        const rows = d.awards || [];
+        let h = '<p class="meta-line">showing ' + rows.length + ' awards</p>';
+        if (!rows.length) { h += '<div class="error-box">No NSF awards found.</div>'; }
+        else {
+          const max = Math.max(1, ...rows.map(a => +a.fundsObligatedAmt || 0));
+          h += '<div class="table-wrap"><table><tr><th>#</th><th>Award ID</th><th>Title</th><th>Funds</th><th>Awardee</th><th>Dates</th></tr>';
+          rows.forEach((a, i) => {
+            h += '<tr><td class="n">' + (i + 1) + '</td>' +
+                 '<td class="mono">' + esc(a.id) + '</td>' +
+                 '<td>' + esc(a.title) + '</td>' +
+                 '<td>' + moneyBar(+a.fundsObligatedAmt || 0, max) + '</td>' +
+                 '<td>' + esc(a.awardeeName || '—') + '</td>' +
+                 '<td>' + esc(fmtDate(a.startDate)) + ' – ' + esc(fmtDate(a.expDate)) + '</td></tr>';
+          });
+          h += '</table></div>';
+        }
+        out.innerHTML = h;
+      } catch (err) { showError(out, err); }
+    }
+  </script>
+</body>
+</html>
