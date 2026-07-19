@@ -1,2 +1,2 @@
-module grants-web
+module grantvera
 go 1.26

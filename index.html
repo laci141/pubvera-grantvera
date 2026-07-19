@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>Research Grants Finder — open federal funding, keyless</title>
+  <title>Grantvera — Research Grant &amp; Funding Search</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Grantvera searches research grants and awards across NIH RePORTER, NSF and Grants.gov using open, keyless data. Filter, sort and export award records to Excel, CSV, BibTeX or JSON.">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
@@ -103,6 +105,17 @@
     .bento-label { font-size: 1.3rem; font-weight: 600; color: var(--color); margin-bottom: 0.5rem; }
     .bento-desc { font-size: 0.92rem; color: #aaa; }
 
+    /* DISCLAIMER */
+    .disclaimer-wrap { max-width: 1100px; margin: 0 auto; padding: 0.5rem 2rem 1rem; }
+    .disclaimer {
+      padding: 1.4rem 1.6rem;
+      font-size: 0.88rem;
+      color: #9aa5b1;
+      line-height: 1.65;
+      border-left: 4px solid rgba(251, 191, 36, 0.55);
+    }
+    .disclaimer strong { color: #fbbf24; }
+
     /* MODAL */
     .modal {
       display: none;
@@ -124,7 +137,7 @@
       border-radius: 1.5rem;
       padding: 2rem;
       max-width: 92%;
-      width: 860px;
+      width: 1000px;
       max-height: 85vh;
       overflow-y: auto;
       backdrop-filter: blur(18px);
@@ -175,26 +188,49 @@
 
     /* RESULTS */
     .results { margin-top: 1.5rem; animation: fadeIn 0.3s ease; }
-    .meta-line { color: #888; font-size: 0.9rem; margin-bottom: 0.75rem; }
     table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
     th { color: #999; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; }
     th, td { text-align: left; padding: 0.5rem 0.7rem 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: top; }
-    td.n { color: #666; width: 2rem; }
+    td.n, th.n { color: #666; width: 2.4rem; }
     .table-wrap { overflow-x: auto; }
     .mono { font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; color: #9cc; }
+    th.sortable { cursor: pointer; user-select: none; transition: color 0.2s ease; }
+    th.sortable:hover { color: #e0e0e0; }
+    .sg { color: #667; font-size: 0.85rem; }
+    th.sortable:hover .sg { color: #00d4ff; }
+    .nomatch { color: #888; font-style: italic; padding: 1rem 0; }
+    .verify { color: #7dd3fc; text-decoration: none; font-size: 1rem; }
+    .verify:hover { color: #fff; }
     /* deadline badges */
-    .dl { display: inline-block; padding: 0.12rem 0.6rem; border-radius: 1rem; font-size: 0.8rem; font-weight: 600; }
-    .dl.red    { background: rgba(239,68,68,0.15);  color: #ef4444; border: 1px solid rgba(239,68,68,0.4); }
-    .dl.yellow { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
-    .dl.gray   { color: #999; }
+    .dl-badge { display: inline-block; padding: 0.12rem 0.6rem; border-radius: 1rem; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+    .dl-badge.red    { background: rgba(239,68,68,0.15);  color: #ef4444; border: 1px solid rgba(239,68,68,0.4); }
+    .dl-badge.yellow { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
+    .dl-badge.gray   { color: #999; }
     /* money bars */
     .bar-container { display: flex; align-items: center; gap: 8px; }
     .bar-number { font-weight: 700; min-width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
-    .bar-chart { height: 14px; border-radius: 4px; flex: 1; max-width: 130px; opacity: 0.85; }
+    .bar-chart { height: 14px; border-radius: 4px; flex: 1; max-width: 110px; opacity: 0.85; }
     .bar-chart.green  { background: linear-gradient(90deg, #22c55e, #86efac); }
     .bar-chart.yellow { background: linear-gradient(90deg, #fbbf24, #fde68a); }
     .bar-chart.red    { background: linear-gradient(90deg, #ef4444, #fca5a5); }
     .bar-chart:hover { opacity: 1; }
+
+    /* EXPORT TOOLBAR */
+    .meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; gap: 12px; flex-wrap: wrap; }
+    .meta { font-size: 0.82rem; color: #99a; }
+    .dl {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); color: #cdd6ea;
+      padding: 4px 14px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+      transition: 0.2s; white-space: nowrap; flex-shrink: 0;
+    }
+    .dl:hover { background: rgba(255,255,255,0.15); border-color: var(--color, #00d4ff); color: #fff; }
+    .dl-group { display: flex; gap: 8px; flex-shrink: 0; align-items: center; flex-wrap: wrap; }
+    .qfilter {
+      background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.16); border-radius: 999px;
+      padding: 4px 14px; color: #e8eef7; font-size: 0.78rem; width: 190px;
+    }
+    .qfilter:focus { outline: none; border-color: var(--color, #00d4ff); }
+    .qcount { color: #7dd3fc; font-size: 0.78rem; font-weight: 600; margin-left: 6px; }
 
     /* LOADING + ERROR */
     .loading {
@@ -230,7 +266,10 @@
       .hero h1 { font-size: 2rem; }
       .hero p { font-size: 1rem; }
       .bento-grid { grid-template-columns: 1fr; padding: 1.25rem; }
+      .disclaimer-wrap { padding: 0.5rem 1.25rem 1rem; }
+      .disclaimer { padding: 1rem; }
       .modal-content { max-width: 100%; width: 100%; margin: 0 0.5rem; padding: 1.5rem; }
+      .qfilter { width: 100%; }
       .glass-panel, .modal-content, .chip {
         backdrop-filter: blur(11px);
         -webkit-backdrop-filter: blur(11px);
@@ -242,8 +281,8 @@
 
   <!-- HERO -->
   <section class="hero">
-    <h1>💰 Research Grants Finder</h1>
-    <p>Find open federal research funding and see what others got. Grants.gov open opportunities, NIH and NSF awarded history. Keyless, free, always current.</p>
+    <h1>Pubvera · Grantvera</h1>
+    <p>Search research grants and awards across NIH, NSF and Grants.gov — open data, keyless.</p>
     <div class="chips">
       <button class="chip" onclick="openModal('open', 'climate')">Climate</button>
       <button class="chip" onclick="openModal('nih', 'cancer')">Cancer</button>
@@ -267,6 +306,19 @@
       <div class="bento-icon">🔍</div>
       <div class="bento-label">Awarded NSF Grants</div>
       <div class="bento-desc">NSF benchmark: what did they fund before? Find similarly-sized awards to estimate your chance.</div>
+    </div>
+  </section>
+
+  <!-- LEGAL DISCLAIMER -->
+  <section class="disclaimer-wrap">
+    <div class="glass-panel disclaimer">
+      <strong>Disclaimer.</strong>
+      Grantvera is an independent research tool. It is not affiliated with, endorsed by, or
+      sponsored by the National Institutes of Health, the National Science Foundation,
+      Grants.gov, or any funding agency. Award data is sourced from public open datasets and
+      may be incomplete, delayed, or superseded. Funding amounts and award statuses shown here
+      are not authoritative — always verify against the official agency record before relying
+      on them for applications, reporting, or analysis.
     </div>
   </section>
 
@@ -394,37 +446,34 @@
       d = Number(d) || 0;
       if (d >= 1e6) return '$' + (d / 1e6).toFixed(d >= 1e7 ? 0 : 1) + 'M';
       if (d >= 1e4) return '$' + Math.round(d / 1e3) + 'K';
-      return '$' + d.toLocaleString();
+      return '$' + d.toLocaleString('en-US');
     }
-    // "07/06/2011" or "2011-07-06" → "Jul 6, 2011"; else pass through
-    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    function fmtDate(s) {
+    // Dates are normalised to YYYY-MM-DD everywhere: the screen, the sort keys and
+    // the exports all read the same string, so lexical order is chronological order.
+    function isoDate(s) {
       if (!s) return '';
-      let m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
-      if (m) return MONTHS[+m[1] - 1] + ' ' + (+m[2]) + ', ' + m[3];
-      m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-      if (m) return MONTHS[+m[2] - 1] + ' ' + (+m[3]) + ', ' + m[1];
-      return s;
+      let m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);      // MM/DD/YYYY
+      if (m) return m[3] + '-' + m[1] + '-' + m[2];
+      m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);             // already ISO
+      if (m) return m[1] + '-' + m[2] + '-' + m[3];
+      return String(s);
     }
-    function parseDate(s) {
-      if (!s) return null;
-      let m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
-      if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
-      m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-      if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
-      return null;
-    }
+    function yearOf(iso) { const m = /(\d{4})/.exec(iso || ''); return m ? m[1] : ''; }
+    function usd(v) { return (Number(v) || 0).toLocaleString('en-US'); }
+    function todayISO() { return new Date().toISOString().slice(0, 10); }
+
     // deadline badge: today/past=red, <7 days=yellow, else gray; empty="Ongoing"
-    function closeBadge(s) {
-      if (!s) return '<span class="dl gray">Ongoing</span>';
-      const d = parseDate(s);
-      if (!d) return '<span class="dl gray">' + esc(s) + '</span>';
-      const today = new Date(); today.setHours(0,0,0,0);
+    function closeBadge(raw) {
+      const iso = isoDate(raw);
+      if (!iso) return '<span class="dl-badge gray">Ongoing</span>';
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+      if (!m) return '<span class="dl-badge gray">' + esc(iso) + '</span>';
+      const d = new Date(+m[1], +m[2] - 1, +m[3]);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
       const days = Math.round((d - today) / 86400000);
-      const label = esc(fmtDate(s));
-      if (days <= 0) return '<span class="dl red">' + label + '</span>';
-      if (days < 7)  return '<span class="dl yellow">' + label + '</span>';
-      return '<span class="dl gray">' + label + '</span>';
+      if (days <= 0) return '<span class="dl-badge red">' + esc(iso) + '</span>';
+      if (days < 7)  return '<span class="dl-badge yellow">' + esc(iso) + '</span>';
+      return '<span class="dl-badge gray">' + esc(iso) + '</span>';
     }
     // money bar with green/yellow/red tier relative to max
     function moneyBar(amount, max) {
@@ -432,6 +481,451 @@
       const tier = pct >= 66 ? 'green' : pct >= 33 ? 'yellow' : 'red';
       return '<div class="bar-container"><span class="bar-number">' + formatMoney(amount) + '</span>' +
              '<div class="bar-chart ' + tier + '" style="width:' + pct + '%"></div></div>';
+    }
+
+    // --- data model ---------------------------------------------------------
+    // Raw API rows, exactly as each module received them.
+    const lastData = { open: null, nih: null, nsf: null };
+    // Per-module view state: the quick filter text, the sort column and direction,
+    // and the form-level filters that were in effect when the query ran.
+    const view = {
+      open: { filter: '', sort: -1, dir: 1, formFilters: [] },
+      nih:  { filter: '', sort: -1, dir: 1, formFilters: [] },
+      nsf:  { filter: '', sort: -1, dir: 1, formFilters: [] }
+    };
+    const queryOf = { open: '', nih: '', nsf: '' };
+
+    const SOURCE = { open: 'Grants.gov', nih: 'NIH RePORTER', nsf: 'NSF Awards' };
+    const ANALYSIS_LABEL = {
+      open: 'Open grant opportunity search',
+      nih:  'NIH award funding history',
+      nsf:  'NSF award funding history'
+    };
+    const EMPTY_MSG = 'Run an analysis first — or clear the filters, nothing is visible.';
+
+    // One column model per module. `val` is the single source of truth: the table,
+    // the quick filter, the sort comparator and all four exports read it. There is
+    // deliberately no second accessor path that could drift out of sync.
+    const COLS = {
+      open: [
+        { label: 'Opportunity number', val: r => r.number || '', type: 'text', mono: true },
+        { label: 'Title',              val: r => r.title || '',  type: 'text' },
+        { label: 'Agency',             val: r => r.agency || r.agencyCode || '', type: 'text' },
+        { label: 'Open date',          val: r => isoDate(r.openDate),  type: 'date' },
+        { label: 'Close date',         val: r => isoDate(r.closeDate), type: 'date', cell: r => closeBadge(r.closeDate) },
+        { label: 'Status',             val: r => r.oppStatus || '', type: 'text' },
+        { label: 'URL',                val: r => r.id ? 'https://www.grants.gov/search-results-detail/' + r.id : '',
+          type: 'text', url: true, sortable: false }
+      ],
+      nih: [
+        { label: 'Project number',          val: r => r.project_num || '',   type: 'text', mono: true },
+        { label: 'Title',                   val: r => r.project_title || '', type: 'text' },
+        { label: 'Principal investigator',  val: r => (r.contact_pi_name || '').trim(), type: 'text' },
+        { label: 'Institution',             val: r => (r.organization && r.organization.org_name) || '', type: 'text' },
+        { label: 'Agency',                  val: () => 'NIH', type: 'text' },
+        { label: 'Award amount',            val: r => Number(r.award_amount) || 0, type: 'num', money: true },
+        { label: 'Fiscal year',             val: r => r.fiscal_year || '', type: 'num' },
+        { label: 'URL',                     val: r => r.project_num
+            ? 'https://reporter.nih.gov/project-details/' + encodeURIComponent(r.project_num) : '',
+          type: 'text', url: true, sortable: false }
+      ],
+      nsf: [
+        { label: 'Award number', val: r => r.id || '',    type: 'text', mono: true },
+        { label: 'Title',        val: r => r.title || '', type: 'text' },
+        { label: 'Institution',  val: r => r.awardeeName || '', type: 'text' },
+        { label: 'Agency',       val: () => 'NSF', type: 'text' },
+        { label: 'Award amount', val: r => Number(r.fundsObligatedAmt) || 0, type: 'num', money: true },
+        { label: 'Start date',   val: r => isoDate(r.startDate), type: 'date' },
+        { label: 'End date',     val: r => isoDate(r.expDate),   type: 'date' },
+        { label: 'URL',          val: r => r.id
+            ? 'https://www.nsf.gov/awardsearch/showAward?AWD_ID=' + encodeURIComponent(r.id) : '',
+          type: 'text', url: true, sortable: false }
+      ]
+    };
+
+    // --- the one and only filter + sort chain -------------------------------
+    // Everything the user sees, and everything that gets exported, comes out of
+    // here. Filter tokens are ANDed: each whitespace-separated token must appear
+    // somewhere in the row.
+    function viewRows(key) {
+      const raw = lastData[key] || [];
+      const cols = COLS[key];
+      const st = view[key];
+      const tokens = String(st.filter || '').toLowerCase().split(/\s+/).filter(Boolean);
+      let rows = raw;
+      if (tokens.length) {
+        rows = raw.filter(r => {
+          const hay = cols.map(c => String(c.val(r))).join(' ').toLowerCase();
+          return tokens.every(t => hay.indexOf(t) !== -1);
+        });
+      }
+      if (st.sort >= 0 && cols[st.sort]) {
+        const c = cols[st.sort];
+        rows = rows.slice().sort((a, b) => {
+          let x = c.val(a), y = c.val(b);
+          if (c.type === 'num') {                       // money and years sort numerically
+            return ((Number(x) || 0) - (Number(y) || 0)) * st.dir;
+          }
+          x = String(x == null ? '' : x); y = String(y == null ? '' : y);
+          if (c.type !== 'date') { x = x.toLowerCase(); y = y.toLowerCase(); }
+          return (x < y ? -1 : x > y ? 1 : 0) * st.dir;
+        });
+      }
+      return rows;
+    }
+
+    // Filters currently narrowing the view, in human-readable form. Used by the
+    // origin line so an exported file states what produced it.
+    function activeFilters(key) {
+      const st = view[key];
+      const out = [];
+      if (String(st.filter || '').trim()) out.push('"' + String(st.filter).trim() + '"');
+      (st.formFilters || []).forEach(f => out.push(f));
+      return out;
+    }
+
+    // Rows shaped for export: export column labels as keys, in column order.
+    // Money stays a real JavaScript number so Excel and JSON get a number, not text.
+    function exportShaped(key) {
+      const cols = COLS[key];
+      return viewRows(key).map(r => {
+        const o = {};
+        cols.forEach(c => { o[c.label] = c.money ? (Number(c.val(r)) || 0) : c.val(r); });
+        return o;
+      });
+    }
+
+    // Live view registry: every module that filters or sorts registers a getter
+    // returning the rows exactly as the user currently sees them, plus the filters
+    // that produced them. Without this the exports silently ignore the on-screen
+    // filters and hand back the full result set.
+    const viewProviders = {};
+
+    function registerView(key, fn) { viewProviders[key] = fn; }
+
+    function exportRows(key) {
+      const p = viewProviders[key];
+      if (typeof p === "function") {
+        const v = p() || {};
+        return { rows: Array.isArray(v.rows) ? v.rows : [], scope: (v.filters || []).join(" · ") };
+      }
+      return { rows: rowsFromLastData(key) || [], scope: "" };   // fallback: unfiltered module
+    }
+
+    // Fallback only — reached when a module never registered a live view.
+    function rowsFromLastData(key) {
+      const d = lastData[key];
+      if (!d) return null;
+      if (Array.isArray(d)) return d;
+      if (typeof d === "object") {
+        for (const k of Object.keys(d)) { if (Array.isArray(d[k])) return d[k]; }
+      }
+      return null;
+    }
+
+    // Provenance line stamped into every exported file, in every format.
+    function exportHeader(key) {
+      const total = (lastData[key] || []).length;
+      const shown = exportRows(key).rows.length;
+      const scope = exportRows(key).scope;
+      const parts = [
+        'Grantvera export',
+        ANALYSIS_LABEL[key],
+        'query: "' + (queryOf[key] || '') + '"',
+        'showing ' + shown + ' of ' + total + ' rows'
+      ];
+      if (scope) parts.push('filter: ' + scope);
+      parts.push('source: ' + SOURCE[key]);
+      parts.push(todayISO());
+      return parts.join(' · ');
+    }
+
+    // --- CSV (RFC4180). Excel-safe: BOM + CRLF + explicit separator hint. ----
+    function toCSV(key) {
+      const rows = exportRows(key).rows;
+      const cols = [];
+      rows.forEach(r => Object.keys(r || {}).forEach(k => { if (cols.indexOf(k) === -1) cols.push(k); }));
+      const cell = v => {
+        // Booleans must be exported as text, otherwise Excel localises them
+        // (Hungarian Excel shows IGAZ / HAMIS instead of TRUE / FALSE).
+        if (v === null || v === undefined || v === false) return "";
+        if (v === true) return "Yes";
+        let s = (typeof v === "object") ? JSON.stringify(v) : String(v);
+        if (/[",\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+        return s;
+      };
+      // "sep=," tells Excel the delimiter regardless of the user's locale.
+      const origin = '"' + exportHeader(key).replace(/"/g, '""') + '"';
+      const lines = ["sep=,", origin, cols.map(cell).join(",")];
+      rows.forEach(r => lines.push(cols.map(c => cell(r ? r[c] : "")).join(",")));
+      return "﻿" + lines.join("\r\n");
+    }
+
+    function downloadCSV(key, filename) {
+      const rows = exportRows(key).rows;
+      if (!rows.length) { alert(EMPTY_MSG); return; }
+      triggerDownload(new Blob([toCSV(key)], { type: "text/csv;charset=utf-8" }), filename);
+    }
+
+    // --- XLSX: origin row, styled header, numeric money column --------------
+    function downloadXLSX(key, filename) {
+      const shaped = exportRows(key).rows;
+      if (!shaped.length) { alert(EMPTY_MSG); return; }
+      const cols = COLS[key];
+      const vrows = viewRows(key);
+      const cellText = v => {
+        if (v === null || v === undefined || v === false) return "";
+        if (v === true) return "Yes";
+        return (typeof v === "object") ? JSON.stringify(v) : v;
+      };
+      // Row 0 = provenance, row 1 = header, rows 2+ = data.
+      const aoa = [[exportHeader(key)], cols.map(c => c.label)];
+      vrows.forEach(r => aoa.push(cols.map(c => c.money ? (Number(c.val(r)) || 0) : cellText(c.val(r)))));
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, cols.length - 1) } }];
+
+      // Measure each column: long free text goes left and wide, short values centre.
+      const colInfo = cols.map(c => {
+        let max = String(c.label).length, sum = 0, cnt = 0;
+        vrows.forEach(r => {
+          const L = String(c.val(r) == null ? '' : c.val(r)).length;
+          if (L > max) max = L; sum += L; cnt++;
+        });
+        const avg = cnt ? sum / cnt : 0;
+        const isLong = (max > 22) || (avg > 18);
+        return { wch: Math.min(Math.max(max + 2, 10), c.money ? 16 : (isLong ? 90 : 24)), left: isLong, money: !!c.money };
+      });
+      ws['!cols'] = colInfo.map(ci => ({ wch: ci.wch }));
+
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = range.s.c; C <= range.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[addr]) continue;
+          if (R === 0) {
+            ws[addr].s = { font: { italic: true, color: { rgb: "555555" } },
+              alignment: { horizontal: "left", vertical: "center" },
+              fill: { fgColor: { rgb: "EDEDED" } } };
+          } else if (R === 1) {
+            ws[addr].s = { font: { bold: true, color: { rgb: "FFFFFF" } },
+              alignment: { vertical: "center", horizontal: "center", wrapText: false },
+              fill: { fgColor: { rgb: "4472C4" } },
+              border: { bottom: { style: "thin", color: { rgb: "999999" } } } };
+          } else {
+            const ci = colInfo[C];
+            if (ci && ci.money) {
+              // Award amount must stay a real number: researchers SUM and sort on it.
+              ws[addr].t = 'n';
+              ws[addr].z = '#,##0';
+              ws[addr].s = { numFmt: '#,##0', alignment: { horizontal: "right", vertical: "center" } };
+            } else {
+              ws[addr].s = { alignment: { vertical: "center",
+                horizontal: (ci && ci.left) ? "left" : "center", wrapText: false } };
+            }
+          }
+        }
+      }
+      // Freeze below the origin + header rows. Note: xlsx-js-style 1.2.0 contains no
+      // pane-writing code, so this is currently inert — kept for when the library
+      // gains support. The autofilter below is what actually reaches the user, and
+      // it is what makes the numeric award column sortable inside Excel itself.
+      ws['!freeze'] = { xSplit: 0, ySplit: 2 };
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({
+        s: { r: 1, c: 0 }, e: { r: range.e.r, c: Math.max(0, cols.length - 1) } }) };
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Grantvera");
+      XLSX.writeFile(wb, filename);
+    }
+
+    // --- BibTeX: a grant is not an article, so every entry is @misc ----------
+    function bibEsc(v) { return String(v == null ? "" : v).replace(/[{}\\]/g, "").trim(); }
+    function bibKey(s, fallback) {
+      const k = String(s == null ? '' : s).replace(/[^A-Za-z0-9]/g, '');
+      return k || fallback;
+    }
+
+    function bibEntry(key, r) {
+      if (key === 'nih') {
+        const num = r.project_num || '';
+        return '@misc{' + bibKey(num, 'nihaward') + ',\n' +
+          '  title        = {' + bibEsc(r.project_title) + '},\n' +
+          '  author       = {{' + bibEsc((r.contact_pi_name || '').trim()) + '}},\n' +
+          '  howpublished = {NIH RePORTER, project number ' + bibEsc(num) + '},\n' +
+          '  year         = {' + (r.fiscal_year || '') + '},\n' +
+          '  url          = {https://reporter.nih.gov/project-details/' + encodeURIComponent(num) + '},\n' +
+          '  note         = {NIH — award amount USD ' + usd(r.award_amount) +
+                            '; FY' + (r.fiscal_year || '') + '}\n}';
+      }
+      if (key === 'nsf') {
+        const id = r.id || '';
+        return '@misc{NSF' + bibKey(id, 'award') + ',\n' +
+          '  title        = {' + bibEsc(r.title) + '},\n' +
+          '  author       = {{' + bibEsc(r.awardeeName) + '}},\n' +
+          '  howpublished = {NSF Awards, award number ' + bibEsc(id) + '},\n' +
+          '  year         = {' + yearOf(isoDate(r.startDate)) + '},\n' +
+          '  url          = {https://www.nsf.gov/awardsearch/showAward?AWD_ID=' + encodeURIComponent(id) + '},\n' +
+          '  note         = {NSF — award amount USD ' + usd(r.fundsObligatedAmt) +
+                            '; ' + isoDate(r.startDate) + ' to ' + isoDate(r.expDate) + '}\n}';
+      }
+      const num = r.number || '';
+      return '@misc{' + bibKey(num, 'opportunity') + ',\n' +
+        '  title        = {' + bibEsc(r.title) + '},\n' +
+        '  author       = {{' + bibEsc(r.agency || r.agencyCode || '') + '}},\n' +
+        '  howpublished = {Grants.gov, opportunity number ' + bibEsc(num) + '},\n' +
+        '  year         = {' + yearOf(isoDate(r.openDate)) + '},\n' +
+        '  url          = {' + (r.id ? 'https://www.grants.gov/search-results-detail/' + r.id : 'https://www.grants.gov/') + '},\n' +
+        '  note         = {' + bibEsc(r.agency || r.agencyCode || '') + ' — status ' + bibEsc(r.oppStatus) +
+                          '; closes ' + (isoDate(r.closeDate) || 'ongoing') + '}\n}';
+    }
+
+    function toBibTeX(key) {
+      const rows = viewRows(key);
+      const out = ['% ' + exportHeader(key)];
+      rows.forEach(r => out.push(bibEntry(key, r)));
+      return out.join('\n\n') + '\n';
+    }
+
+    function downloadBibTeX(key, filename) {
+      const rows = exportRows(key).rows;
+      if (!rows.length) { alert(EMPTY_MSG); return; }
+      triggerDownload(new Blob([toBibTeX(key)], { type: "application/x-bibtex;charset=utf-8" }), filename);
+    }
+
+    // --- JSON + shared download trigger -------------------------------------
+    function downloadJSON(key, filename) {
+      const rows = exportRows(key).rows;
+      if (!rows.length) { alert(EMPTY_MSG); return; }
+      const payload = {
+        export: {
+          app: 'Grantvera',
+          analysis: ANALYSIS_LABEL[key],
+          query: queryOf[key] || '',
+          filters: activeFilters(key),
+          rows_exported: rows.length,
+          rows_total: (lastData[key] || []).length,
+          source: SOURCE[key],
+          exported_at: todayISO()
+        },
+        rows: rows
+      };
+      triggerDownload(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), filename);
+    }
+
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // --- result rendering ---------------------------------------------------
+    function metaRow(key, filename) {
+      const csvName  = String(filename).replace(/\.json$/i, ".csv");
+      const xlsxName = String(filename).replace(/\.json$/i, ".xlsx");
+      const bibName  = String(filename).replace(/\.json$/i, ".bib");
+      return '<div class="meta-row"><span class="meta">' + esc(ANALYSIS_LABEL[key]) +
+        '<span class="qcount" id="' + key + '_qc"></span></span>' +
+        '<span class="dl-group">' +
+        '<input class="qfilter" type="text" placeholder="🔍 Filter results…" ' +
+          'oninput="onFilter(\'' + key + '\',this.value)">' +
+        '<button class="dl" title="BibTeX citation for these awards (@misc)" ' +
+          'onclick="downloadBibTeX(\'' + key + '\',\'' + bibName + '\')">⬇ BibTeX</button>' +
+        '<button class="dl" onclick="downloadXLSX(\'' + key + '\',\'' + xlsxName + '\')">⬇ Excel</button>' +
+        '<button class="dl" onclick="downloadCSV(\'' + key + '\',\'' + csvName + '\')">⬇ CSV</button>' +
+        '<button class="dl" onclick="downloadJSON(\'' + key + '\',\'' + filename + '\')">⬇ JSON</button>' +
+        '</span></div>';
+    }
+
+    function renderResult(key, out, filename) {
+      const rows = lastData[key] || [];
+      if (!rows.length) {
+        out.innerHTML = '<div class="error-box">No results found for this query.</div>';
+        return;
+      }
+      out.innerHTML = metaRow(key, filename) + '<div class="table-wrap" id="' + key + '_tw"></div>';
+      renderTable(key);
+    }
+
+    // Redraws the table body and the count from viewRows() — the same call the
+    // exports make, so what is counted here is exactly what lands in the file.
+    function renderTable(key) {
+      const cols = COLS[key];
+      const st = view[key];
+      const vrows = viewRows(key);
+      const total = (lastData[key] || []).length;
+      const moneyCol = cols.filter(c => c.money)[0];
+
+      const qc = document.getElementById(key + '_qc');
+      if (qc) {
+        let t = ' — ' + vrows.length + ' / ' + total + ' rows';
+        if (moneyCol) {
+          const sum = vrows.reduce((a, r) => a + (Number(moneyCol.val(r)) || 0), 0);
+          t += ' · total USD ' + usd(sum);
+        }
+        qc.textContent = t;
+      }
+
+      const tw = document.getElementById(key + '_tw');
+      if (!tw) return;
+      let h = '<table><thead><tr><th class="n">#</th>';
+      cols.forEach((c, ci) => {
+        if (c.sortable === false) { h += '<th>' + esc(c.label) + '</th>'; return; }
+        const glyph = (st.sort === ci) ? (st.dir > 0 ? '↑' : '↓') : '⇅';
+        h += '<th class="sortable" data-key="' + key + '" data-col="' + ci + '">' +
+             esc(c.label) + ' <span class="sg">' + glyph + '</span></th>';
+      });
+      h += '</tr></thead><tbody>';
+      if (!vrows.length) {
+        h += '<tr><td class="n"></td><td class="nomatch" colspan="' + cols.length +
+             '">No rows match the current filter.</td></tr>';
+      } else {
+        const max = moneyCol
+          ? Math.max(1, ...vrows.map(r => Number(moneyCol.val(r)) || 0))
+          : 1;
+        vrows.forEach((r, i) => {
+          h += '<tr><td class="n">' + (i + 1) + '</td>';
+          cols.forEach(c => {
+            let cell;
+            if (c.money)      cell = moneyBar(Number(c.val(r)) || 0, max);
+            else if (c.url)   { const u = c.val(r);
+                                cell = u ? '<a class="verify" href="' + esc(u) +
+                                  '" target="_blank" rel="noopener" title="Verify on the official agency record">↗</a>' : '—'; }
+            else if (c.cell)  cell = c.cell(r);
+            else              cell = esc(c.val(r)) || '—';
+            h += '<td' + (c.mono ? ' class="mono"' : '') + '>' + cell + '</td>';
+          });
+          h += '</tr>';
+        });
+      }
+      h += '</tbody></table>';
+      tw.innerHTML = h;
+    }
+
+    function onFilter(key, value) {
+      view[key].filter = value;
+      renderTable(key);
+    }
+
+    // Single delegated click handler for every sortable column header.
+    document.addEventListener('click', e => {
+      const th = e.target.closest ? e.target.closest('th.sortable[data-key]') : null;
+      if (!th) return;
+      const key = th.getAttribute('data-key');
+      const ci = +th.getAttribute('data-col');
+      const st = view[key];
+      if (!st) return;
+      if (st.sort === ci) st.dir = -st.dir; else { st.sort = ci; st.dir = 1; }
+      renderTable(key);
+    });
+
+    // Wires a module's live view into the export layer. Called after every query.
+    function bindModule(key, rows, query, formFilters) {
+      lastData[key] = rows;
+      queryOf[key] = query;
+      view[key] = { filter: '', sort: -1, dir: 1, formFilters: formFilters || [] };
+      registerView(key, () => ({ rows: exportShaped(key), filters: activeFilters(key) }));
     }
 
     // --- modal plumbing -----------------------------------------------------
@@ -491,23 +985,11 @@
       if (agency) body.agency = agency;
       try {
         const d = await callApi('/api/search', body, out, document.getElementById('open-btn'));
-        const opps = d.opportunities || [];
-        let h = '<p class="meta-line">' + esc((d.totalHits != null ? d.totalHits.toLocaleString() : opps.length)) +
-                ' total hits · showing ' + opps.length + '</p>';
-        if (!opps.length) { h += '<div class="error-box">No open opportunities found.</div>'; }
-        else {
-          h += '<div class="table-wrap"><table><tr><th>#</th><th>Opportunity #</th><th>Title</th><th>Agency</th><th>Open</th><th>Close</th></tr>';
-          opps.forEach((o, i) => {
-            h += '<tr><td class="n">' + (i + 1) + '</td>' +
-                 '<td class="mono">' + esc(o.number) + '</td>' +
-                 '<td>' + esc(o.title) + '</td>' +
-                 '<td>' + esc(o.agency || o.agencyCode || '—') + '</td>' +
-                 '<td>' + esc(fmtDate(o.openDate)) + '</td>' +
-                 '<td>' + closeBadge(o.closeDate) + '</td></tr>';
-          });
-          h += '</table></div>';
-        }
-        out.innerHTML = h;
+        const ff = [];
+        if (before) ff.push('closing before ' + before);
+        if (agency) ff.push('agency ' + agency);
+        bindModule('open', d.opportunities || [], query, ff);
+        renderResult('open', out, 'grantvera-open-grants.json');
       } catch (err) { showError(out, err); }
     }
 
@@ -523,25 +1005,11 @@
       if (year) body.year = +year;
       try {
         const d = await callApi('/api/nih', body, out, document.getElementById('nih-btn'));
-        const rows = d.projects || [];
-        let h = '<p class="meta-line">' + esc((d.total != null ? d.total.toLocaleString() : rows.length)) +
-                ' total · showing ' + rows.length + '</p>';
-        if (!rows.length) { h += '<div class="error-box">No NIH awards found.</div>'; }
-        else {
-          const max = Math.max(1, ...rows.map(p => p.award_amount || 0));
-          h += '<div class="table-wrap"><table><tr><th>#</th><th>Project #</th><th>Title</th><th>Award</th><th>Year</th><th>PI</th><th>Organization</th></tr>';
-          rows.forEach((p, i) => {
-            h += '<tr><td class="n">' + (i + 1) + '</td>' +
-                 '<td class="mono">' + esc(p.project_num) + '</td>' +
-                 '<td>' + esc(p.project_title) + '</td>' +
-                 '<td>' + moneyBar(p.award_amount || 0, max) + '</td>' +
-                 '<td>' + esc(p.fiscal_year || '—') + '</td>' +
-                 '<td>' + esc((p.contact_pi_name || '').trim()) + '</td>' +
-                 '<td>' + esc(p.organization && p.organization.org_name || '—') + '</td></tr>';
-          });
-          h += '</table></div>';
-        }
-        out.innerHTML = h;
+        const ff = [];
+        if (min > 0) ff.push('min amount USD ' + usd(min));
+        if (year) ff.push('FY' + year);
+        bindModule('nih', d.projects || [], query, ff);
+        renderResult('nih', out, 'grantvera-nih-awards.json');
       } catch (err) { showError(out, err); }
     }
 
@@ -555,23 +1023,10 @@
       if (min > 0) body.min_amount = min;
       try {
         const d = await callApi('/api/nsf', body, out, document.getElementById('nsf-btn'));
-        const rows = d.awards || [];
-        let h = '<p class="meta-line">showing ' + rows.length + ' awards</p>';
-        if (!rows.length) { h += '<div class="error-box">No NSF awards found.</div>'; }
-        else {
-          const max = Math.max(1, ...rows.map(a => +a.fundsObligatedAmt || 0));
-          h += '<div class="table-wrap"><table><tr><th>#</th><th>Award ID</th><th>Title</th><th>Funds</th><th>Awardee</th><th>Dates</th></tr>';
-          rows.forEach((a, i) => {
-            h += '<tr><td class="n">' + (i + 1) + '</td>' +
-                 '<td class="mono">' + esc(a.id) + '</td>' +
-                 '<td>' + esc(a.title) + '</td>' +
-                 '<td>' + moneyBar(+a.fundsObligatedAmt || 0, max) + '</td>' +
-                 '<td>' + esc(a.awardeeName || '—') + '</td>' +
-                 '<td>' + esc(fmtDate(a.startDate)) + ' – ' + esc(fmtDate(a.expDate)) + '</td></tr>';
-          });
-          h += '</table></div>';
-        }
-        out.innerHTML = h;
+        const ff = [];
+        if (min > 0) ff.push('min amount USD ' + usd(min));
+        bindModule('nsf', d.awards || [], query, ff);
+        renderResult('nsf', out, 'grantvera-nsf-awards.json');
       } catch (err) { showError(out, err); }
     }
   </script>
