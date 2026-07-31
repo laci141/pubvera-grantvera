@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -55,13 +56,41 @@ func cliBinary() string {
 	return "./grants-pp-cli"
 }
 
-func runCLI(args ...string) ([]byte, error) {
+// cliTimeout bounds a single child CLI run.
+//
+// Before this, runCLI had no deadline at all: a child that hung — a stalled
+// NIH or NSF request, a DNS failure inside the CLI — held the HTTP request
+// open forever, and the goroutine and the process with it. Nothing reclaimed
+// either.
+//
+// The value is inherited from corpova rather than measured here. It is the
+// same 120s budget that app gives a CLI run, chosen so the ceiling sits above
+// any legitimate run rather than at the edge of one. If grantvera turns out to
+// need a different figure, measure a real run first — do not adjust it to make
+// a symptom go away.
+const cliTimeout = 120 * time.Second
+
+// runCLI runs the child CLI once and returns its stdout.
+//
+// The context comes from the request, so a client that goes away kills the
+// child instead of leaving it to finish work nobody will read. CommandContext
+// is what makes that true: exec.Command ignores cancellation entirely.
+func runCLI(ctx context.Context, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
+	defer cancel()
+
 	bin := cliBinary()
-	cmd := exec.Command(bin, args...)
-	var out []byte
-	var err error
-	out, err = cmd.Output()
+	// #nosec G204 -- fixed subcommands and flags; user text is passed as
+	// discrete argv elements, never through a shell.
+	cmd := exec.CommandContext(ctx, bin, args...)
+	out, err := cmd.Output()
 	if err != nil {
+		// Distinguish the deadline from a genuine CLI failure: "CLI error:
+		// signal: killed" is what a timeout looks like otherwise, and it sends
+		// the reader hunting for a crash that never happened.
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("CLI timed out after %s", cliTimeout)
+		}
 		return nil, fmt.Errorf("CLI error: %v", err)
 	}
 	return out, nil
@@ -107,7 +136,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, "--json")
 
-	out, err := runCLI(args...)
+	out, err := runCLI(r.Context(), args...)
 	if err != nil {
 		log.Print(err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -151,7 +180,7 @@ func handleNIH(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, "--json")
 
-	out, err := runCLI(args...)
+	out, err := runCLI(r.Context(), args...)
 	if err != nil {
 		log.Print(err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -191,7 +220,7 @@ func handleNSF(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, "--json")
 
-	out, err := runCLI(args...)
+	out, err := runCLI(r.Context(), args...)
 	if err != nil {
 		log.Print(err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
