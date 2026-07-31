@@ -79,6 +79,14 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
 	defer cancel()
 
+	// Take a concurrency slot before spawning. Bounded here rather than in the
+	// handlers so every CLI path is covered by construction: a new endpoint
+	// cannot forget to ask.
+	if slotErr := cliSem.acquire(ctx); slotErr != nil {
+		return nil, slotErr
+	}
+	defer cliSem.release()
+
 	bin := cliBinary()
 	// #nosec G204 -- fixed subcommands and flags; user text is passed as
 	// discrete argv elements, never through a shell.
@@ -139,7 +147,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	out, err := runCLI(r.Context(), args...)
 	if err != nil {
 		log.Print(err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeCLIError(w, err)
 		return
 	}
 	writeRaw(w, out)
@@ -183,7 +191,7 @@ func handleNIH(w http.ResponseWriter, r *http.Request) {
 	out, err := runCLI(r.Context(), args...)
 	if err != nil {
 		log.Print(err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeCLIError(w, err)
 		return
 	}
 	writeRaw(w, out)
@@ -223,7 +231,7 @@ func handleNSF(w http.ResponseWriter, r *http.Request) {
 	out, err := runCLI(r.Context(), args...)
 	if err != nil {
 		log.Print(err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeCLIError(w, err)
 		return
 	}
 	writeRaw(w, out)
