@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -70,19 +71,45 @@ func cliBinary() string {
 // a symptom go away.
 const cliTimeout = 120 * time.Second
 
+// cliCmdLabel names the subcommand for the log without leaking user input.
+// Every caller in this file builds args with a fixed verb first and the user's
+// query second (search <query>, nih <query>, nsf <query>), so only the first
+// element is safe to log.
+func cliCmdLabel(args []string) string {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return "?"
+	}
+	return args[0]
+}
+
 // runCLI runs the child CLI once and returns its stdout.
 //
 // The context comes from the request, so a client that goes away kills the
 // child instead of leaving it to finish work nobody will read. CommandContext
 // is what makes that true: exec.Command ignores cancellation entirely.
+//
+// The two measurements are split deliberately. wait_ms is the only way to tell
+// whether the slot count is right: queue time is invisible in the CLI's own
+// runtime, so a saturated semaphore and a slow upstream look identical from
+// outside — both surface as one slow page and nothing else. Only wait_ms
+// separates "we are out of slots" from "the far end is slow", and they need
+// opposite fixes. bytes is the other half: a run that still succeeds but
+// suddenly returns far less than it used to is the earliest sign of a quota
+// being enforced or an upstream API degrading, well before it fails outright.
 func runCLI(ctx context.Context, args ...string) ([]byte, error) {
+	started := time.Now()
+	label := cliCmdLabel(args)
+
 	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
 	defer cancel()
 
 	// Take a concurrency slot before spawning. Bounded here rather than in the
 	// handlers so every CLI path is covered by construction: a new endpoint
 	// cannot forget to ask.
-	if slotErr := cliSem.acquire(ctx); slotErr != nil {
+	slotErr := cliSem.acquire(ctx)
+	waitMS := time.Since(started).Milliseconds()
+	if slotErr != nil {
+		log.Printf("cli: busy cmd=%s wait_ms=%d err=%v", label, waitMS, slotErr)
 		return nil, slotErr
 	}
 	defer cliSem.release()
@@ -91,16 +118,21 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 	// #nosec G204 -- fixed subcommands and flags; user text is passed as
 	// discrete argv elements, never through a shell.
 	cmd := exec.CommandContext(ctx, bin, args...)
+	runStart := time.Now()
 	out, err := cmd.Output()
+	elapsed := time.Since(runStart).Milliseconds()
 	if err != nil {
 		// Distinguish the deadline from a genuine CLI failure: "CLI error:
 		// signal: killed" is what a timeout looks like otherwise, and it sends
 		// the reader hunting for a crash that never happened.
 		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=deadline", label, waitMS, elapsed)
 			return nil, fmt.Errorf("CLI timed out after %s", cliTimeout)
 		}
+		log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v", label, waitMS, elapsed, err)
 		return nil, fmt.Errorf("CLI error: %v", err)
 	}
+	log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d", label, waitMS, elapsed, len(out))
 	return out, nil
 }
 
