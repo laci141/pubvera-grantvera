@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -118,8 +119,15 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 	// #nosec G204 -- fixed subcommands and flags; user text is passed as
 	// discrete argv elements, never through a shell.
 	cmd := exec.CommandContext(ctx, bin, args...)
+	// stderr is captured separately: cmd.Output() discards it, so a CLI that
+	// explains itself on stderr and exits non-zero left only "exit status 1"
+	// for the reader. The message goes to the caller, never to the log — a
+	// keyless request has no redaction in front of upstream text.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	runStart := time.Now()
-	out, err := cmd.Output()
+	err := cmd.Run()
 	elapsed := time.Since(runStart).Milliseconds()
 	if err != nil {
 		// Distinguish the deadline from a genuine CLI failure: "CLI error:
@@ -130,10 +138,10 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 			return nil, fmt.Errorf("CLI timed out after %s", cliTimeout)
 		}
 		log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v", label, waitMS, elapsed, err)
-		return nil, fmt.Errorf("CLI error: %v", err)
+		return nil, fmt.Errorf("CLI error: %v — stderr: %s", err, stderr.String())
 	}
-	log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d", label, waitMS, elapsed, len(out))
-	return out, nil
+	log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d", label, waitMS, elapsed, stdout.Len())
+	return stdout.Bytes(), nil
 }
 
 func writeRaw(w http.ResponseWriter, b []byte) {
