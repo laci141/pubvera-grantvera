@@ -858,8 +858,13 @@
       return out.join('\n\n') + '\n';
     }
 
+    // The check and the content must come from the SAME call. exportRows
+    // returns exportShaped rows, keyed by column LABEL ("Project Title"),
+    // while bibEntry reads raw API fields (project_title, contact_pi_name).
+    // Checking one and writing the other works today only because toBibTeX
+    // reads viewRows itself — a coincidence, not a contract.
     function downloadBibTeX(key, filename) {
-      const rows = exportRows(key).rows;
+      const rows = viewRows(key);
       if (!rows.length) { alert(EMPTY_MSG); return; }
       triggerDownload(new Blob([toBibTeX(key)], { type: "application/x-bibtex;charset=utf-8" }), filename);
     }
