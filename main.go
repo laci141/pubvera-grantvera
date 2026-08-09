@@ -140,7 +140,16 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 		log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v", label, waitMS, elapsed, err)
 		return nil, fmt.Errorf("CLI error: %v — stderr: %s", err, stderr.String())
 	}
-	log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d", label, waitMS, elapsed, stdout.Len())
+	// A successful run can still have written to stderr, and those messages are
+	// the ones worth seeing: the CLI prints its rate-limit and server-error
+	// retries there while the command goes on to succeed. Logging stderr only on
+	// failure discarded exactly the warnings that explain a slow but successful
+	// request. Operator information, never sent to the client.
+	if w := strings.TrimSpace(stderr.String()); w != "" {
+		log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d stderr=%s", label, waitMS, elapsed, stdout.Len(), truncate(w, 300))
+	} else {
+		log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d", label, waitMS, elapsed, stdout.Len())
+	}
 	return stdout.Bytes(), nil
 }
 
@@ -275,4 +284,15 @@ func handleNSF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeRaw(w, out)
+}
+
+// truncate caps a log line at max runes. Rune-based, not byte-based: a stderr
+// message can carry UTF-8, and slicing bytes would split a character and put
+// an invalid sequence in the log. Same shape as pubvera-corpova's.
+func truncate(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "..."
 }
