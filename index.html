@@ -353,6 +353,22 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .error-box {
+    .insight-box {
+      background: linear-gradient(160deg, rgba(255,255,255,.07), rgba(255,255,255,.045));
+      border: 1px solid rgba(255,255,255,.10);
+      border-left: 3px solid rgba(212,175,55,.55);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 0.8rem;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #cfd8e6;
+    }
+    .insight-box p { margin: 0 0 6px; }
+    .insight-box p:last-child { margin-bottom: 0; }
+    @media (max-width: 768px) {
+      .insight-box { padding: 10px 12px; font-size: 12px; }
+    }
       background: rgba(239, 68, 68, 0.1);
       border: 1px solid rgba(239, 68, 68, 0.35);
       border-radius: 0.5rem;
@@ -824,7 +840,10 @@
         'Grantvera export',
         ANALYSIS_LABEL[key],
         'query: "' + (queryOf[key] || '') + '"',
-        'showing ' + shown + ' of ' + total + ' rows'
+        'showing ' + shown + ' of ' + total + ' rows loaded' +
+          ((lastMeta[key] || {}).total > total
+            ? ' (' + (lastMeta[key].total).toLocaleString('en-US') + ' matched in total)'
+            : '')
       ];
       if (scope) parts.push('filter: ' + scope);
       parts.push('source: ' + SOURCE[key]);
@@ -1014,7 +1033,11 @@
           query: queryOf[key] || '',
           filters: activeFilters(key).join(' · '),
           rows_exported: rows.length,
-          rows_total: (lastData[key] || []).length,
+          rows_loaded: (lastData[key] || []).length,
+          // The registry-wide match count from the CLI, not the number of rows
+          // fetched. Reporting the page size as the total told the reader that
+          // 15 awards exist when the search matched 195,078.
+          rows_matched: (lastMeta[key] || {}).total || null,
           source: SOURCE[key],
           exported_at: nowISO()
         },
@@ -1056,8 +1079,55 @@
         out.innerHTML = '<div class="error-box">No results found for this query.</div>';
         return;
       }
-      out.innerHTML = metaRow(key, filename) + '<div class="table-wrap" id="' + key + '_tw"></div>';
+      out.innerHTML = metaRow(key, filename) + insightRow(key) + '<div class="table-wrap" id="' + key + '_tw"></div>';
       renderTable(key);
+    }
+    // A size-sorted list shows the largest awards, which are not the typical
+    // ones — measured, a topic whose median award is about $420,000 shows
+    // multi-million dollar rows at the top. This states the difference rather
+    // than leaving the reader to infer it from the table.
+    function insightRow(key) {
+      const m = lastMeta[key] || {};
+      const bits = [];
+      if (m.typical && m.typical.population > 0) {
+        let s = 'Typical award: about $' + usd(m.typical.estimate);
+        if (m.typical.bracket_high > 0) {
+          s += ' — half of the ' + m.typical.population.toLocaleString('en-US') +
+               ' matching awards fall between $' + usd(m.typical.bracket_low) +
+               ' and $' + usd(m.typical.bracket_high) + '.';
+        }
+        s += ' The table is sorted by size, so it shows the largest awards, not typical ones.';
+        // Without a fiscal year the population spans every year RePORTER holds,
+        // and each support year of a multi-year project counts separately, so
+        // one long-running study can contribute a dozen rows. Measured for
+        // "cancer": 195,078 awards and a $315,625 estimate across all years,
+        // against 7,823 and $421,875 for FY2024 alone.
+        if (!m.year) {
+          s += ' This covers every fiscal year on record — pick a year for a figure you can compare against a current application.';
+        }
+        bits.push(s);
+      }
+      if (m.relevance && m.relevance.examined > 0) {
+        let s = 'Searched ' + m.relevance.examined + ' recent NSF awards; ' +
+                m.relevance.matched + ' mention every word of the query, ' +
+                m.relevance.title_matched + ' in the title.';
+        if (m.relevance.pool_error) {
+          s += ' The search stopped early after an upstream error (' +
+               m.relevance.pages_fetched + ' of ' + m.relevance.pages_planned +
+               ' pages), so these counts are a floor — retry for the full picture.';
+        } else if (m.relevance.matched < 10) {
+          s += ' Few awards use all of these words together — try fewer or broader words.';
+        }
+        bits.push(s);
+      }
+      if (m.source === 'open') {
+        bits.push('Newest postings first. Grants.gov leaves records in "posted" status indefinitely, so an older posting date is worth checking at the agency before you rely on it.');
+      }
+      if (m.includeCenters === false) {
+        bits.push('Center, program and consortium awards are excluded; those fund running a research centre rather than a single project and are one to two orders of magnitude larger.');
+      }
+      if (!bits.length) return '';
+      return '<div class="insight-box">' + bits.map(b => '<p>' + b + '</p>').join('') + '</div>';
     }
 
     // Redraws the table body and the count from viewRows() — the same call the
@@ -1066,6 +1136,9 @@
       const cols = COLS[key];
       const st = view[key];
       const vrows = viewRows(key);
+      // Rows loaded, not registry matches: the CLI's total counts every award
+      // that matched, and it is shown separately below so "4 / 4 rows" cannot
+      // be mistaken for "only 4 awards exist".
       const total = (lastData[key] || []).length;
       const moneyCol = cols.filter(c => c.money)[0];
 
@@ -1133,8 +1206,13 @@
     });
 
     // Wires a module's live view into the export layer. Called after every query.
-    function bindModule(key, rows, query, formFilters) {
+    // Everything the CLI reports beyond the rows themselves: the registry-wide
+    // match count, the typical-award estimate, the relevance counts. Kept per
+    // module so the screen can say what the row list alone cannot.
+    const lastMeta = {};
+    function bindModule(key, rows, query, formFilters, meta) {
       lastData[key] = rows;
+      lastMeta[key] = meta || {};
       queryOf[key] = query;
       view[key] = { filter: '', sort: -1, dir: 1, formFilters: formFilters || [] };
       registerView(key, () => ({ rows: exportShaped(key), filters: activeFilters(key) }));
@@ -1287,7 +1365,7 @@
         const ff = [];
         if (before) ff.push('closing before ' + before);
         if (agency) ff.push('agency ' + agency);
-        bindModule('open', d.opportunities || [], query, ff);
+        bindModule('open', d.opportunities || [], query, ff, { total: d.totalHits, source: 'open' });
         renderResult('open', out, 'grantvera-open-grants.json');
       } catch (err) { showError(out, err); }
     }
@@ -1307,7 +1385,7 @@
         const ff = [];
         if (min > 0) ff.push('min amount USD ' + usd(min));
         if (year) ff.push('FY' + year);
-        bindModule('nih', d.projects || [], query, ff);
+        bindModule('nih', d.projects || [], query, ff, { total: d.total, typical: d.typical_award, includeCenters: d.include_centers, year: year ? +year : 0 });
         renderResult('nih', out, 'grantvera-nih-awards.json');
       } catch (err) { showError(out, err); }
     }
@@ -1324,7 +1402,7 @@
         const d = await callApi('/api/nsf', body, out, document.getElementById('nsf-btn'));
         const ff = [];
         if (min > 0) ff.push('min amount USD ' + usd(min));
-        bindModule('nsf', d.awards || [], query, ff);
+        bindModule('nsf', d.awards || [], query, ff, { relevance: d.relevance });
         renderResult('nsf', out, 'grantvera-nsf-awards.json');
       } catch (err) { showError(out, err); }
     }
