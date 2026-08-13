@@ -327,6 +327,15 @@
     /* EXPORT TOOLBAR */
     .meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; gap: 12px; flex-wrap: wrap; }
     .meta { font-size: 0.82rem; color: #99a; }
+    /* Measured at 380px: rows + match count + money is 617px and wraps to three
+       lines. The match count is the part that must survive, so the money phrase
+       is dropped by CSS — a media query rather than a width read in JS, so a
+       rotate or resize corrects itself without a re-render. */
+    @media (max-width: 560px) { .qmoney { display: none; } }
+    /* The analysis label repeats what the modal heading above it already says,
+       so on a phone it costs ~190px of the counter's line for nothing. Its
+       trailing em dash sits inside the span and goes with it. */
+    @media (max-width: 560px) { .qlabel { display: none; } }
     .dl {
       background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); color: #cdd6ea;
       padding: 4px 14px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; cursor: pointer;
@@ -709,6 +718,14 @@
       nih:  'NIH award funding history',
       nsf:  'NSF award funding history'
     };
+    // What the CLI's reported total actually counts, per module. NIH RePORTER
+    // returns one record per support year, so a multi-year project contributes
+    // several records and "awards" would overstate the distinct projects found.
+    const MATCH_NOUN = {
+      open: 'opportunities',
+      nih:  'award records',
+      nsf:  'awards'
+    };
     const EMPTY_MSG = 'Run an analysis first — or clear the filters, nothing is visible.';
 
     // One column model per module. `val` is the single source of truth: the table,
@@ -1060,7 +1077,10 @@
       const csvName  = String(filename).replace(/\.json$/i, ".csv");
       const xlsxName = String(filename).replace(/\.json$/i, ".xlsx");
       const bibName  = String(filename).replace(/\.json$/i, ".bib");
-      return '<div class="meta-row"><span class="meta">' + esc(ANALYSIS_LABEL[key]) +
+      // The separator lives with the label, not with the counter, so hiding the
+      // label on a narrow viewport cannot leave a dangling em dash behind.
+      return '<div class="meta-row"><span class="meta">' +
+        '<span class="qlabel">' + esc(ANALYSIS_LABEL[key]) + ' — </span>' +
         '<span class="qcount" id="' + key + '_qc"></span></span>' +
         '<span class="dl-group">' +
         '<input class="qfilter" type="text" placeholder="🔍 Filter results…" ' +
@@ -1136,20 +1156,36 @@
       const cols = COLS[key];
       const st = view[key];
       const vrows = viewRows(key);
-      // Rows loaded, not registry matches: the CLI's total counts every award
-      // that matched, and it is shown separately below so "4 / 4 rows" cannot
-      // be mistaken for "only 4 awards exist".
+      // Rows loaded, not registry matches: the CLI's total counts every record
+      // that matched, and it is appended to the counter below so "4 / 4 rows"
+      // cannot be mistaken for "only 4 records exist".
       const total = (lastData[key] || []).length;
+      const matched = (lastMeta[key] || {}).total;
       const moneyCol = cols.filter(c => c.money)[0];
 
       const qc = document.getElementById(key + '_qc');
       if (qc) {
-        let t = ' — ' + vrows.length + ' / ' + total + ' rows';
+        let t = vrows.length + ' / ' + total + ' rows';
+        // Same guard as exportHeader: only worth saying when the registry held
+        // more than was fetched.
+        if (matched > total) {
+          t += ' · ' + matched.toLocaleString('en-US') + ' ' + MATCH_NOUN[key] + ' matched';
+        }
+        // Two spans, both filled with textContent: no HTML can enter here. The
+        // money phrase lives in its own span so the stylesheet can hide it on a
+        // narrow viewport, which keeps the decision with the layout instead of
+        // freezing a window width into the rendered text.
+        qc.textContent = '';
+        const always = document.createElement('span');
+        always.textContent = t;
+        qc.appendChild(always);
         if (moneyCol) {
           const sum = vrows.reduce((a, r) => a + (Number(moneyCol.val(r)) || 0), 0);
-          t += ' · total USD ' + usd(sum);
+          const money = document.createElement('span');
+          money.className = 'qmoney';
+          money.textContent = ' · USD ' + usd(sum) + ' in rows shown';
+          qc.appendChild(money);
         }
-        qc.textContent = t;
       }
 
       const tw = document.getElementById(key + '_tw');
