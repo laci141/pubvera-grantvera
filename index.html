@@ -1077,11 +1077,16 @@
           query: queryOf[key] || '',
           filters: activeFilters(key).join(' · '),
           rows_exported: rows.length,
+          // rows_loaded is Grantvera-specific: how many rows the CLI returned
+          // before the quick filter narrowed them. The other seven apps have no
+          // such intermediate step, so they carry rows_exported and rows_total
+          // only. Extra keys are additive; the shared pair keeps its meaning.
           rows_loaded: (lastData[key] || []).length,
           // The registry-wide match count from the CLI, not the number of rows
           // fetched. Reporting the page size as the total told the reader that
-          // 15 awards exist when the search matched 195,078.
-          rows_matched: (lastMeta[key] || {}).total || null,
+          // 15 awards exist when the search matched 195,078. Named rows_total
+          // to match the other seven apps, where the key means the same thing.
+          rows_total: (lastMeta[key] || {}).total || null,
           source: SOURCE[key],
           exported_at: nowISO()
         },
