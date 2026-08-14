@@ -1136,9 +1136,14 @@
       const bits = [];
       if (m.typical && m.typical.population > 0) {
         let s = 'Typical award: about $' + usd(m.typical.estimate);
+        // The bracket is how far the bisection narrowed the median's LOCATION,
+        // not how the awards themselves are spread. Award sizes are heavily
+        // right-skewed: the same result set carries multi-million dollar rows,
+        // so claiming half of them sit inside a few-thousand-dollar band would
+        // be plainly false. Word it as uncertainty about the median.
         if (m.typical.bracket_high > 0) {
-          s += ' — half of the ' + m.typical.population.toLocaleString('en-US') +
-               ' matching awards fall between $' + usd(m.typical.bracket_low) +
+          s += ' — the median across ' + m.typical.population.toLocaleString('en-US') +
+               ' award records lies between $' + usd(m.typical.bracket_low) +
                ' and $' + usd(m.typical.bracket_high) + '.';
         }
         s += ' The table is sorted by size, so it shows the largest awards, not typical ones.';
