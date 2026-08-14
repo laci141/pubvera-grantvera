@@ -16,11 +16,23 @@
       color: #e0e0e0;
       line-height: 1.6;
       min-height: 100vh;
-      /* Clears the fixed .brand-bar. Measured, not guessed: the bar renders
-         44.03px here, and the same 44.03px signed out and signed in, so 45px is
-         the height rounded up to a whole pixel. Re-measure if the bar's padding
-         or the wordmark's font-size changes. */
-      padding-top: 45px;
+      /* Clearance for the fixed .brand-bar, derived from the bar's own rules so
+         it tracks the root font size instead of freezing one measurement. The
+         terms: 0.6rem bar padding top and bottom, the tallest child, and a
+         trailing 2px. The candidates for tallest child are .brand-word's line box
+         (0.95rem at the inherited line-height 1.6 = 1.52rem), the 22px mark, and
+         .auth-bar once it is shown — it has no padding or border of its own, so
+         its height is the taller of .auth-email (0.8rem x 1.6 = 1.28rem) and
+         .auth-btn (0.75rem at line-height 1 + 0.3rem padding x2 + 1px border
+         x2 = 1.35rem + 2px). The mark wins below a ~14.5px root, .brand-word
+         above it; that crossover is what max() is for. The reserve is sized for
+         the signed-in bar, so the gap only ever grows when auth is hidden.
+         The trailing 2px is two separate 1px components: the bar's hairline
+         border-bottom, plus a sub-pixel allowance, because Chrome snaps the
+         wordmark's line box up to a 1/64px grid and it measured 0.01-0.02px
+         taller than the exact rem arithmetic at some root sizes, which left the
+         gap barely negative. One whole pixel covers that with room to spare. */
+      padding-top: calc(1.2rem + max(1.52rem, 22px, 1.28rem, 1.35rem + 2px) + 2px);
     }
     /* Colored background BEHIND the glass panels so blur is visible */
     body::before {
@@ -59,6 +71,11 @@
       z-index: 900;
       display: flex;
       align-items: center;
+      /* One row, always: the body clearance above is computed from a single-row
+         bar, so a wrap here would put page content under the bar. There is no
+         bare `header` selector in this file today, but the bar is a <header>
+         and would inherit one if it ever appeared. */
+      flex-wrap: nowrap;
       gap: 0.55rem;
       padding: 0.6rem 1rem;
       min-width: 0;
@@ -426,9 +443,15 @@
     @media (max-width: 768px) {
       .hero h1 { font-size: 2rem; }
       .hero p { font-size: 1rem; }
-      /* Measured, not guessed: the bar is shorter here — 36.92px, again the same
-         signed out and signed in — so 37px is that rounded up to a whole pixel. */
-      body { padding-top: 37px; }
+      /* Same derivation as on <body>, with this breakpoint's own numbers: the
+         bar padding drops to 0.45rem top and bottom, and every child term
+         shrinks except the mark — .brand-word 0.82rem x 1.6 = 1.312rem, the
+         22px mark, .auth-email 0.7rem x 1.6 = 1.12rem, .auth-btn 0.7rem +
+         0.25rem padding x2 + 1px border x2 = 1.2rem + 2px. So the mark leads
+         here up to a ~16.8px root rather than the ~14.5px of the desktop bar.
+         The trailing 2px is the same pair as on <body>: 1px hairline border,
+         1px sub-pixel allowance for Chrome's 1/64px line-box snapping. */
+      body { padding-top: calc(0.9rem + max(1.312rem, 22px, 1.12rem, 1.2rem + 2px) + 2px); }
       .hero { padding-top: 1.5rem; }
       .brand-bar {
         padding: 0.45rem 0.7rem;
