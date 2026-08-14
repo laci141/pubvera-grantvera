@@ -1018,7 +1018,7 @@
         return '@misc{' + bibKey(num, 'nihaward') + ',\n' +
           '  title        = {' + bibEsc(r.project_title) + '},\n' +
           bibField('author', r.contact_pi_name, true) +
-          bibField('institution', (r.organization && r.organization.org_name) || '') + +
+          bibField('institution', (r.organization && r.organization.org_name) || '') +
           '  howpublished = {NIH RePORTER, project number ' + bibEsc(num) + '},\n' +
           bibField('year', r.fiscal_year) +
           '  url          = {https://reporter.nih.gov/project-details/' + encodeURIComponent(num) + '},\n' +
