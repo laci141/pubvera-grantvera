@@ -887,6 +887,21 @@
             ? ' (' + (lastMeta[key].total).toLocaleString('en-US') + ' ' + MATCH_NOUN[key] + ' matched in total)'
             : '')
       ];
+      // NSF alone has no registry total: its API returns a recent pool that the
+      // CLI ranks within, so the exported rows are the top of a sample, not the
+      // whole result set. The screen says so; the file has to as well, or the
+      // off-topic tail rows look like errors. Guarded exactly as the on-screen
+      // note is — the other two modules have no relevance object at all.
+      const rel = (lastMeta[key] || {}).relevance;
+      if (rel && rel.examined > 0) {
+        let s = 'sampled ' + rel.examined + ' recent awards, ' + rel.matched +
+                ' matched all query words, ' + rel.title_matched + ' in the title';
+        if (rel.pool_error) {
+          s += ' (stopped early after an upstream error at ' + rel.pages_fetched +
+               ' of ' + rel.pages_planned + ' pages, so these counts are a floor)';
+        }
+        parts.push(s);
+      }
       if (scope) parts.push('filter: ' + scope);
       parts.push('source: ' + SOURCE[key]);
       parts.push(todayISO());
