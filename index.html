@@ -1087,6 +1087,12 @@
           // 15 awards exist when the search matched 195,078. Named rows_total
           // to match the other seven apps, where the key means the same thing.
           rows_total: (lastMeta[key] || {}).total || null,
+          // What rows_total counts, straight from the same map the screen and
+          // the CSV/BibTeX headers use. NIH RePORTER returns one record per
+          // support year, so "awards" would overstate distinct projects; the
+          // unit has to travel with the number. Null when rows_total is null —
+          // a unit beside a missing count would assert knowledge we lack.
+          rows_total_unit: (lastMeta[key] || {}).total ? MATCH_NOUN[key] : null,
           source: SOURCE[key],
           exported_at: nowISO()
         },
