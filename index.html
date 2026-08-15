@@ -902,6 +902,14 @@
         }
         parts.push(s);
       }
+      // Same OR-semantics fact as the on-screen note, minus the advice: a file
+      // is read without a search box in front of it.
+      const kh = (lastMeta[key] || {}).keywordHits;
+      if (Array.isArray(kh) && kh.length > 1 && kh.some(k => k.hits === 0)) {
+        parts.push('per-word hits: ' +
+          kh.map(k => k.word + ' ' + k.hits.toLocaleString('en-US')).join(', ') +
+          ' (Grants.gov matches any word, not all)');
+      }
       if (scope) parts.push('filter: ' + scope);
       parts.push('source: ' + SOURCE[key]);
       parts.push(todayISO());
@@ -1201,6 +1209,23 @@
       if (m.source === 'open') {
         bits.push('Newest postings first. Grants.gov leaves records in "posted" status indefinitely, so an older posting date is worth checking at the agency before you rely on it.');
       }
+      // Grants.gov ORs the query words: a word that matches nothing on its own
+      // leaves the result count unchanged, so a typo is invisible in the totals.
+      // Measured: "climate" 61 hits, "climate zzzqqqxxx" also 61, "zzzqqqxxx" 0.
+      // Only shown when some word found nothing — when every word matched, the
+      // OR semantics did no harm and the note would be noise.
+      const kh = m.keywordHits;
+      if (Array.isArray(kh) && kh.length > 1) {
+        const dead = kh.filter(k => k.hits === 0).map(k => k.word);
+        if (dead.length) {
+          bits.push('Grants.gov matches any of your words, not all of them: ' +
+            kh.map(k => '"' + k.word + '" ' + k.hits.toLocaleString('en-US')).join(', ') +
+            '. ' + (dead.length === 1 ? 'That word' : 'Those words') +
+            ' found nothing alone, so ' + (dead.length === 1 ? 'it' : 'they') +
+            ' did not narrow this search — check the spelling, or search without ' +
+            (dead.length === 1 ? 'it' : 'them') + '.');
+        }
+      }
       if (m.includeCenters === false) {
         bits.push('Center, program and consortium awards are excluded; those fund running a research centre rather than a single project and are one to two orders of magnitude larger.');
       }
@@ -1459,7 +1484,7 @@
         const ff = [];
         if (before) ff.push('closing before ' + before);
         if (agency) ff.push('agency ' + agency);
-        bindModule('open', d.opportunities || [], query, ff, { total: d.totalHits, source: 'open' });
+        bindModule('open', d.opportunities || [], query, ff, { total: d.totalHits, source: 'open', keywordHits: d.keyword_hits });
         renderResult('open', out, 'grantvera-open-grants.json');
       } catch (err) { showError(out, err); }
     }
