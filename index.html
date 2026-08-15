@@ -884,7 +884,7 @@
         'query: "' + (queryOf[key] || '') + '"',
         'showing ' + shown + ' of ' + total + ' rows loaded' +
           ((lastMeta[key] || {}).total > total
-            ? ' (' + (lastMeta[key].total).toLocaleString('en-US') + ' matched in total)'
+            ? ' (' + (lastMeta[key].total).toLocaleString('en-US') + ' ' + MATCH_NOUN[key] + ' matched in total)'
             : '')
       ];
       if (scope) parts.push('filter: ' + scope);
