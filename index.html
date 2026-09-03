@@ -1108,7 +1108,11 @@
         const id = r.id || '';
         return '@misc{NSF' + bibKey(id, 'award') + ',\n' +
           '  title        = {' + bibEsc(r.title) + '},\n' +
-          bibField('author', r.awardeeName, true) +
+          // No author line: the NSF feed carries no principal investigator, and
+          // repeating the institution here would invent a corporate author that
+          // the record does not claim. bibField omits an empty field anyway, so
+          // this stays right once a real PI is fetched — it then covers the
+          // records where the PI is genuinely missing.
           bibField('institution', r.awardeeName) +
           '  howpublished = {NSF Awards, award number ' + bibEsc(id) + '},\n' +
           bibField('year', yearOf(isoDate(r.startDate))) +
