@@ -672,7 +672,10 @@
     // dollars (not cents) → "$1.2M" / "$50K" / "$5,000"
     function formatMoney(d) {
       d = Number(d) || 0;
-      if (d >= 1e6) return '$' + (d / 1e6).toFixed(d >= 1e7 ? 0 : 1) + 'M';
+      // One decimal, then drop a trailing '.0': 11,749,351 -> $11.7M while a
+      // round 12,000,000 stays $12M, so the min-amount slider labels (which read
+      // the same formatter) do not gain a pointless $10.0M.
+      if (d >= 1e6) return '$' + (d / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
       if (d >= 1e4) return '$' + Math.round(d / 1e3) + 'K';
       return '$' + d.toLocaleString('en-US');
     }
@@ -1231,8 +1234,8 @@
         // so claiming half of them sit inside a few-thousand-dollar band would
         // be plainly false. Word it as uncertainty about the median.
         if (m.typical.bracket_high > 0) {
-          s += ' — the median across ' + m.typical.population.toLocaleString('en-US') +
-               ' award records lies between $' + usd(m.typical.bracket_low) +
+          s += ' — the median across all ' + m.typical.population.toLocaleString('en-US') +
+               ' award records that match this topic and fiscal year, counted before the minimum-amount filter is applied, lies between $' + usd(m.typical.bracket_low) +
                ' and $' + usd(m.typical.bracket_high) + '.';
         }
         s += ' The table is sorted by size, so it shows the largest awards, not typical ones.';
