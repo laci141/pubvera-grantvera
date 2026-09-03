@@ -692,6 +692,37 @@
     // Exports stamp a full timestamp: two exports on the same day must be tellable apart.
     function nowISO() { return new Date().toISOString(); }
 
+    // Grants.gov ships raw agency text: doubled interior spaces and
+    // trailing spaces. The Go server relays the CLI's JSON verbatim by
+    // design (the CLI owns the schema), so normalising here is the only
+    // place that does not move schema ownership into the web app. An
+    // upstream fix in grantsgov.go is planned; this stays harmless after
+    // it lands.
+    function normText(v) {
+      if (v == null) return '';
+      return String(v).replace(/\s+/g, ' ').trim();
+    }
+
+    // Applied once, at bindModule, to the raw records themselves — the single
+    // point upstream of BOTH renderTable (via viewRows) and every export
+    // (exportShaped keys off COLS, bibEntry reads the raw API fields). Keys that
+    // are URLs, dates, identifiers or opportunity numbers are left byte-exact,
+    // and non-strings (money) are untouched.
+    const NORM_SKIP = /url|link|date|number|num|_num|id$|^id$|code/i;
+    function normRecord(r) {
+      if (!r || typeof r !== 'object' || Array.isArray(r)) return r;
+      const out = Array.isArray(r) ? r.slice() : Object.assign({}, r);
+      Object.keys(out).forEach(k => {
+        const v = out[k];
+        if (typeof v === 'string') {
+          if (!NORM_SKIP.test(k)) out[k] = normText(v);
+        } else if (v && typeof v === 'object') {
+          out[k] = normRecord(v);
+        }
+      });
+      return out;
+    }
+
     // Grants.gov spells "no deadline" two ways: an empty close date and the
     // sentinel 2099-01-01. Both mean Ongoing, and screen and export must say so
     // identically. This is the single sentinel — a grant really closing in 2087
@@ -916,6 +947,14 @@
       return parts.join(' · ');
     }
 
+    // Dash policy for CSV / XLSX / JSON: the raw U+2013 is KEPT. These three
+    // formats are UTF-8 end to end (the CSV carries a BOM, XLSX is UTF-8 XML,
+    // JSON is UTF-8 by definition), so an en-dash renders correctly and folding
+    // it would silently alter the source title. Only BibTeX folds the dash class
+    // (see bibEsc), because classic BibTeX may read the file as latin1 and fail
+    // the whole entry. The decision is the same for all three of these formats:
+    // none of them fold.
+
     // --- CSV (RFC4180). Excel-safe: BOM + CRLF + explicit separator hint. ----
     function toCSV(key) {
       const rows = exportRows(key).rows;
@@ -1042,7 +1081,10 @@
       return '  ' + name.padEnd(12) + ' = ' + body + ',\n';
     }
     function bibKey(s, fallback) {
-      const k = String(s == null ? '' : s).replace(/[^A-Za-z0-9]/g, '');
+      // Separators become '_', not nothing: deleting them made AB-C1 and A-BC1
+      // the same key. Never route a cite key through bibEsc — that escapes _ to
+      // \_ for FIELD BODIES, and a backslash is invalid inside a cite key.
+      const k = String(s == null ? '' : s).replace(/[^A-Za-z0-9]/g, '_');
       return k || fallback;
     }
 
@@ -1341,7 +1383,7 @@
     // module so the screen can say what the row list alone cannot.
     const lastMeta = {};
     function bindModule(key, rows, query, formFilters, meta) {
-      lastData[key] = rows;
+      lastData[key] = Array.isArray(rows) ? rows.map(normRecord) : rows;
       lastMeta[key] = meta || {};
       queryOf[key] = query;
       view[key] = { filter: '', sort: -1, dir: 1, formFilters: formFilters || [] };
