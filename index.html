@@ -816,6 +816,11 @@
       nsf: [
         { label: 'Award number', val: r => r.id || '',    type: 'text', mono: true },
         { label: 'Title',        val: r => r.title || '', type: 'text' },
+        // Same label and accessor as the NIH column: the CLI emits the NSF PI
+        // under the NIH field name (contact_pi_name, "SURNAME, FIRSTNAME").
+        // A binary older than upstream #1931 omits the key, and the cell then
+        // stays empty rather than guessing from the institution.
+        { label: 'Principal investigator', val: r => (r.contact_pi_name || '').trim(), type: 'text' },
         { label: 'Institution',  val: r => r.awardeeName || '', type: 'text' },
         { label: 'Agency',       val: () => 'NSF', type: 'text' },
         { label: 'Award amount', val: r => Number(r.fundsObligatedAmt) || 0, type: 'num', money: true },
@@ -1108,11 +1113,12 @@
         const id = r.id || '';
         return '@misc{NSF' + bibKey(id, 'award') + ',\n' +
           '  title        = {' + bibEsc(r.title) + '},\n' +
-          // No author line: the NSF feed carries no principal investigator, and
-          // repeating the institution here would invent a corporate author that
-          // the record does not claim. bibField omits an empty field anyway, so
-          // this stays right once a real PI is fetched — it then covers the
-          // records where the PI is genuinely missing.
+          // The author is the principal investigator the CLI now fetches
+          // (upstream #1931). Never fall back to the institution: that would
+          // invent a corporate author the record does not claim. bibField
+          // omits the line when the PI is missing, so an award without one,
+          // or a response from an older binary, simply has no author.
+          bibField('author', r.contact_pi_name, true) +
           bibField('institution', r.awardeeName) +
           '  howpublished = {NSF Awards, award number ' + bibEsc(id) + '},\n' +
           bibField('year', yearOf(isoDate(r.startDate))) +
