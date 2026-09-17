@@ -384,6 +384,18 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .error-box {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      color: #fca5a5;
+      font-size: 0.95rem;
+    }
+    /* Explanatory notes above a result table (typical award, NSF sampling,
+       Grants.gov word hits). A top-level rule on purpose: this block once sat
+       inside the .error-box braces, and CSS nesting then read it as
+       ".error-box .insight-box", which never matches, so the notes rendered
+       as bare text. */
     .insight-box {
       background: linear-gradient(160deg, rgba(255,255,255,.07), rgba(255,255,255,.045));
       border: 1px solid rgba(255,255,255,.10);
@@ -399,13 +411,6 @@
     .insight-box p:last-child { margin-bottom: 0; }
     @media (max-width: 768px) {
       .insight-box { padding: 10px 12px; font-size: 12px; }
-    }
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.35);
-      border-radius: 0.5rem;
-      padding: 1rem;
-      color: #fca5a5;
-      font-size: 0.95rem;
     }
     /* Auth and quota rejections get a glass card instead of the red one-line box:
        they carry a heading, an explanation and — for a signed-out visitor — a
