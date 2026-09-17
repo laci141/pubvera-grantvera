@@ -690,6 +690,20 @@
       return String(s);
     }
     function yearOf(iso) { const m = /(\d{4})/.exec(iso || ''); return m ? m[1] : ''; }
+    // Excel stores a date as the number of days since 1899-12-30. Computed in
+    // UTC on purpose: a local-time Date carries the timezone offset into the
+    // serial as a fraction of a day, and a fractional serial breaks Excel's
+    // "equals" date filter. Returns null for anything that is not a real
+    // calendar date (empty, "Ongoing", 2026-02-30), so that cell stays text
+    // exactly as the screen shows it.
+    function excelDateSerial(iso) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+      if (!m) return null;
+      const ms = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+      const d = new Date(ms);
+      if (d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return null;
+      return (ms - Date.UTC(1899, 11, 30)) / 86400000;
+    }
     function usd(v) { return (Number(v) || 0).toLocaleString('en-US'); }
     function todayISO() { return new Date().toISOString().slice(0, 10); }
     // Exports stamp a full timestamp: two exports on the same day must be tellable apart.
@@ -1001,9 +1015,21 @@
         if (v === true) return "Yes";
         return (typeof v === "object") ? JSON.stringify(v) : v;
       };
+      // Money and parseable dates become numbers so Excel can SUM, sort and
+      // date-filter them. A date column can also hold text ("Ongoing" for a
+      // grant with no deadline); that value is written as text, never guessed.
+      const xlsxValue = (c, r) => {
+        if (c.money) return Number(c.val(r)) || 0;
+        const v = c.val(r);
+        if (c.type === 'date') {
+          const serial = excelDateSerial(v);
+          if (serial !== null) return serial;
+        }
+        return cellText(v);
+      };
       // Row 0 = provenance, row 1 = header, rows 2+ = data.
       const aoa = [[exportHeader(key)], cols.map(c => c.label)];
-      vrows.forEach(r => aoa.push(cols.map(c => c.money ? (Number(c.val(r)) || 0) : cellText(c.val(r)))));
+      vrows.forEach(r => aoa.push(cols.map(c => xlsxValue(c, r))));
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, cols.length - 1) } }];
 
@@ -1016,7 +1042,8 @@
         });
         const avg = cnt ? sum / cnt : 0;
         const isLong = (max > 22) || (avg > 18);
-        return { wch: Math.min(Math.max(max + 2, 10), c.money ? 16 : (isLong ? 90 : 24)), left: isLong, money: !!c.money };
+        return { wch: Math.min(Math.max(max + 2, 10), c.money ? 16 : (isLong ? 90 : 24)), left: isLong,
+          money: !!c.money, date: c.type === 'date' };
       });
       ws['!cols'] = colInfo.map(ci => ({ wch: ci.wch }));
 
@@ -1041,6 +1068,11 @@
               ws[addr].t = 'n';
               ws[addr].z = '#,##0';
               ws[addr].s = { numFmt: '#,##0', alignment: { horizontal: "right", vertical: "center" } };
+            } else if (ci && ci.date && typeof ws[addr].v === 'number') {
+              // A real date cell, shown in the same YYYY-MM-DD form as the screen.
+              ws[addr].t = 'n';
+              ws[addr].z = 'yyyy-mm-dd';
+              ws[addr].s = { numFmt: 'yyyy-mm-dd', alignment: { horizontal: "center", vertical: "center" } };
             } else {
               ws[addr].s = { alignment: { vertical: "center",
                 horizontal: (ci && ci.left) ? "left" : "center", wrapText: false } };
