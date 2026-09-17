@@ -618,8 +618,7 @@
           <label for="nih-year">Fiscal year</label>
           <select id="nih-year">
             <option value="">Any year</option>
-            <option>2024</option><option>2023</option><option>2022</option>
-            <option>2021</option><option>2020</option>
+            <!-- The years are filled in by fillFiscalYears() below. -->
           </select>
         </div>
         <div class="form-group">
@@ -1460,6 +1459,25 @@
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') MODALS.forEach(closeModal);
     });
+
+    // Fiscal-year choices are generated from today's date rather than
+    // hardcoded: a fixed 2020-2024 list had fallen two years behind while
+    // RePORTER already returned FY2025 and FY2026 awards, and the typical-award
+    // note tells the reader to pick a year for a current comparison. NIH
+    // fiscal year N starts on 1 October of year N-1, so from October onwards
+    // the next fiscal year is already running and is offered as well.
+    (function fillFiscalYears() {
+      const sel = document.getElementById('nih-year');
+      if (!sel) return;
+      const now = new Date();
+      const newest = now.getFullYear() + (now.getMonth() >= 9 ? 1 : 0);
+      for (let y = newest; y > newest - 7; y--) {
+        const o = document.createElement('option');
+        o.value = String(y);
+        o.textContent = String(y);
+        sel.appendChild(o);
+      }
+    })();
 
     // --- fetch plumbing -----------------------------------------------------
     // Bearer token for the auth layer sitting in front of the API. Read at
