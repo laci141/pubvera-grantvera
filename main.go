@@ -154,6 +154,12 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 	// explains itself on stderr and exits non-zero left only "exit status 1"
 	// for the reader. This app is keyless, so there is no BYOK secret that
 	// could ride along in upstream text — stderr can go to the log verbatim.
+	//
+	// It does NOT go to the client. The error returned here reaches the browser
+	// as the response body via writeCLIError, and what the CLI writes to stderr
+	// on failure is its own usage text, its version banner and raw upstream
+	// messages, none of it bounded. That is operator information: it belongs in
+	// the log, where it is already recorded and capped, not in an HTTP response.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -176,7 +182,7 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 		} else {
 			log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v", label, waitMS, elapsed, err)
 		}
-		return nil, fmt.Errorf("CLI error: %v — stderr: %s", err, stderr.String())
+		return nil, fmt.Errorf("CLI error: %v", err)
 	}
 	// A successful run can still have written to stderr, and those messages are
 	// the ones worth seeing: the CLI prints its rate-limit and server-error
