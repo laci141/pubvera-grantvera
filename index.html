@@ -1084,11 +1084,12 @@
           }
         }
       }
-      // Freeze below the origin + header rows. Note: xlsx-js-style 1.2.0 contains no
-      // pane-writing code, so this is currently inert — kept for when the library
-      // gains support. The autofilter below is what actually reaches the user, and
-      // it is what makes the numeric award column sortable inside Excel itself.
-      ws['!freeze'] = { xSplit: 0, ySplit: 2 };
+      // No frozen panes: xlsx-js-style 1.2.0 cannot write them. Measured: a sheet
+      // written with and without ws['!freeze'] is byte-identical and carries no
+      // <pane> element; pane writing is a SheetJS Pro feature. A !freeze line
+      // here would only look as if it worked. The autofilter below is what
+      // actually reaches the user, and it is what makes the numeric award column
+      // sortable inside Excel itself.
       ws['!autofilter'] = { ref: XLSX.utils.encode_range({
         s: { r: 1, c: 0 }, e: { r: range.e.r, c: Math.max(0, cols.length - 1) } }) };
       const wb = XLSX.utils.book_new();
