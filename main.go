@@ -29,7 +29,10 @@ func main() {
 	srv := &http.Server{
 		Addr:              "0.0.0.0:" + port,
 		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: srvReadHeaderTimeout,
+		ReadTimeout:       srvReadTimeout,
+		WriteTimeout:      srvWriteTimeout,
+		IdleTimeout:       srvIdleTimeout,
 	}
 
 	log.Printf("grantvera listening on 0.0.0.0:%s (CLI=%s)", port, cliBinary())
@@ -37,6 +40,29 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+// Server-side timeouts. ReadHeaderTimeout was the only one set, which left the
+// request BODY with no deadline at all: the handlers decode a small JSON body,
+// but a size limit is not a time limit, and a client that sends those bytes one
+// per minute holds a handler goroutine for as long as it likes. Caddy sits in
+// front in production and sets no request timeout of its own, so this is the
+// only place the limit exists.
+//
+// WriteTimeout is the one that must not be guessed. It covers the whole
+// response, and a CLI run is allowed cliTimeout to produce it, so anything at
+// or below cliTimeout would cut off legitimate slow searches rather than
+// attacks. It is derived from cliTimeout here for that reason: if the CLI
+// budget ever changes, this follows it instead of silently becoming too short.
+const (
+	srvReadHeaderTimeout = 10 * time.Second
+	// The body is a small JSON object. Thirty seconds is far more than a real
+	// client needs and far less than a slow-loris attacker wants.
+	srvReadTimeout = 30 * time.Second
+	// The full CLI budget plus room to write the response.
+	srvWriteTimeout = cliTimeout + 30*time.Second
+	// Keep-alive connections that go quiet are released rather than held.
+	srvIdleTimeout = 120 * time.Second
+)
 
 // browserConfig is the bootstrap payload /config.json hands to the page so it
 // can build its Supabase client. SupabaseAnonKey is the PUBLISHABLE
