@@ -8,6 +8,11 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # govulncheck is PINNED, not @latest. Every step in this job gates the image
+  # build, so a new release that reports a finding the previous one did not
+  # would stop a deploy that has nothing to do with the change being pushed.
+  # Bump this deliberately and read the diff, rather than being bumped by it.
+  GOVULNCHECK_VERSION: v1.8.0
 
 jobs:
   build:
@@ -27,8 +32,52 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # Formatting and vet run BEFORE the tests: both finish in under a second,
+      # and there is no reason to spend the test run's seconds discovering a
+      # problem that a byte comparison already knows about.
+      #
+      # gofmt compares the bytes on disk, so this check only means anything on
+      # an LF checkout. .gitattributes pins *.go to eol=lf precisely so that a
+      # Windows worktree cannot make this list a file that is byte-identical to
+      # a clean one. Measured before adding this step: the six tracked .go files
+      # taken from the index are gofmt-clean, while the same files in a CRLF
+      # worktree were all listed — a false positive that costs a diagnosis
+      # every time it fires.
+      - name: Check formatting
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt-clean:"
+            echo "$unformatted"
+            echo
+            echo "run gofmt on an LF copy, never 'gofmt -w' on a CRLF worktree"
+            exit 1
+          fi
+          echo "all Go files are gofmt-clean"
+
+      # go vet finds what the compiler does not: Printf verbs that do not match
+      # their arguments, a lock copied by value, unreachable code. None of those
+      # stop a build, and all of them ship.
+      - name: Vet
+        run: go vet ./...
+
       - name: Test
         run: go test -race ./...
+
+      # govulncheck reports known vulnerabilities in the standard library and in
+      # dependencies, but only for code paths this module actually reaches — so
+      # a finding here is one that affects this binary, not a theoretical entry
+      # in a database.
+      #
+      # It runs after the tests rather than before because it is the slowest of
+      # the three checks and the one least likely to fire: this module has no
+      # external dependencies at all, so in practice it watches the Go version
+      # the Dockerfile's golang:1.26-alpine builder resolves to.
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          govulncheck ./...
 
       - name: Check inline JavaScript
         run: |
