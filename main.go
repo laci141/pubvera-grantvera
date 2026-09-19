@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,7 +18,7 @@ import (
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8093"
+		port = defaultPort
 	}
 
 	mux := http.NewServeMux()
@@ -41,6 +43,14 @@ func main() {
 	}
 }
 
+// defaultPort is the port used when PORT is unset. It matches the Dockerfile's
+// EXPOSE and HEALTHCHECK and the compose file's PORT, so all four agree.
+//
+// It was 8093, which is retractis' port on the platform port map. In the
+// container that default never applied — compose sets PORT explicitly — but a
+// local run without the variable collided with another app for no reason.
+const defaultPort = "8095"
+
 // Server-side timeouts. ReadHeaderTimeout was the only one set, which left the
 // request BODY with no deadline at all: the handlers decode a small JSON body,
 // but a size limit is not a time limit, and a client that sends those bytes one
@@ -62,6 +72,29 @@ const (
 	srvWriteTimeout = cliTimeout + 30*time.Second
 	// Keep-alive connections that go quiet are released rather than held.
 	srvIdleTimeout = 120 * time.Second
+)
+
+// Request-shape limits.
+//
+// maxBodyBytes is the size limit the ReadTimeout comment above says a time
+// limit cannot replace. Every request body here is a JSON object with at most
+// four small fields; 64 KiB is orders of magnitude more than any real client
+// sends, and it stops the decoder from being handed an unbounded stream.
+//
+// maxRows is the ceiling on the --rows value handed to the child CLI. Only the
+// lower bound existed before, so rows=1000000 travelled straight through to the
+// child and became an upstream request nobody asked for. Values above the
+// ceiling are REJECTED rather than clamped: clamping returns a different result
+// than the caller asked for without saying so, and a caller that wants 500 rows
+// should learn that it cannot have them.
+//
+// defaultRows keeps the previous behaviour for missing or non-positive values.
+// A negative rows is still treated as "unset" rather than rejected, because
+// that is what every currently deployed frontend relies on.
+const (
+	maxBodyBytes = 64 << 10
+	maxRows      = 100
+	defaultRows  = 15
 )
 
 // browserConfig is the bootstrap payload /config.json hands to the page so it
@@ -228,6 +261,80 @@ func writeRaw(w http.ResponseWriter, b []byte) {
 	w.Write(b)
 }
 
+// decodeJSONRequest reads one JSON object from the request body into dst and
+// reports whether the handler may continue. It writes the error response
+// itself, so a caller that gets false must simply return.
+//
+// It exists because the three handlers each repeated the same four checks, and
+// a rule that lives in three places drifts: /search and /nih would eventually
+// disagree about what a valid request is, and nothing would catch it.
+//
+// Three things it enforces that a bare Decode did not:
+//
+//   - A body size ceiling. MaxBytesReader caps what the decoder can be handed
+//     and, unlike a timeout, it fires on a client that is fast rather than slow.
+//   - Unknown fields are refused. A frontend that sends "row" instead of "rows"
+//     used to get the default silently; now it learns it sent nonsense.
+//   - Trailing data is refused. Decode stops at the end of the first JSON value,
+//     so `{"query":"cancer"} garbage` used to succeed and the garbage was never
+//     read by anyone. A second Decode must report io.EOF — anything else means
+//     the body held more than the one object the API accepts.
+func decodeJSONRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return false
+	}
+	if err := dec.Decode(new(struct{})); err != io.EOF {
+		http.Error(w, "invalid JSON: trailing data after the request object", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+// validateQueryRows normalises the two fields every endpoint shares and reports
+// whether the handler may continue. Like decodeJSONRequest it writes its own
+// error response.
+//
+// The leading-dash rule is the one that is not obvious. The child CLI is
+// invoked as `<verb> <query> --rows N --json`, and its flag parser reads the
+// query as an ordinary argument only because it does not start with a dash.
+// Measured against the real binary: a query of "--help" exits 2 with the usage
+// text on stderr, and "-json" exits 2 with "a keyword is required". Neither is
+// a gateway failure, but both reached the client as 502 by way of
+// writeCLIError — after spawning a process and holding one of the four CLI
+// slots. Rejecting the shape here means the bad input costs nothing and gets
+// the status code it deserves.
+//
+// TrimSpace is the other half: Query != "" let a query of spaces through, and
+// the CLI then went out to the network for it.
+func validateQueryRows(w http.ResponseWriter, query *string, rows *int) bool {
+	*query = strings.TrimSpace(*query)
+	if *query == "" {
+		http.Error(w, "missing query", http.StatusBadRequest)
+		return false
+	}
+	if strings.HasPrefix(*query, "-") {
+		http.Error(w, "query must not start with '-'", http.StatusBadRequest)
+		return false
+	}
+	if *rows > maxRows {
+		http.Error(w, fmt.Sprintf("rows must be at most %d", maxRows), http.StatusBadRequest)
+		return false
+	}
+	if *rows <= 0 {
+		*rows = defaultRows
+	}
+	return true
+}
+
 // POST /api/search
 type searchRequest struct {
 	Query         string `json:"query"`
@@ -242,16 +349,11 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req searchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+	if !decodeJSONRequest(w, r, &req) {
 		return
 	}
-	if req.Query == "" {
-		http.Error(w, "missing query", http.StatusBadRequest)
+	if !validateQueryRows(w, &req.Query, &req.Rows) {
 		return
-	}
-	if req.Rows <= 0 {
-		req.Rows = 15
 	}
 
 	args := []string{"search", req.Query, "--rows", fmt.Sprintf("%d", req.Rows)}
@@ -286,16 +388,11 @@ func handleNIH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req nihRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+	if !decodeJSONRequest(w, r, &req) {
 		return
 	}
-	if req.Query == "" {
-		http.Error(w, "missing query", http.StatusBadRequest)
+	if !validateQueryRows(w, &req.Query, &req.Rows) {
 		return
-	}
-	if req.Rows <= 0 {
-		req.Rows = 15
 	}
 
 	args := []string{"nih", req.Query, "--rows", fmt.Sprintf("%d", req.Rows)}
@@ -329,16 +426,11 @@ func handleNSF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req nsfRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+	if !decodeJSONRequest(w, r, &req) {
 		return
 	}
-	if req.Query == "" {
-		http.Error(w, "missing query", http.StatusBadRequest)
+	if !validateQueryRows(w, &req.Query, &req.Rows) {
 		return
-	}
-	if req.Rows <= 0 {
-		req.Rows = 15
 	}
 
 	args := []string{"nsf", req.Query, "--rows", fmt.Sprintf("%d", req.Rows)}
