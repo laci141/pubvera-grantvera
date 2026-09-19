@@ -26,6 +26,20 @@ import (
 // hoping; it is the difference between two status codes. No network, no real
 // binary, no timing.
 
+// oversizeBody is the length of the body used to probe the size limit.
+//
+// It is a FIXED number, deliberately not derived from maxBodyBytes. The first
+// version of this test built a body of maxBodyBytes+1, which coupled the test
+// to the constant in the worst possible way: raising the constant in a mutation
+// made the test allocate that much memory and take the test runner down with
+// it. The run failed, but from exhaustion rather than from an assertion, which
+// proves nothing about the rule.
+//
+// The guard below keeps the two in a known relationship without the coupling:
+// if maxBodyBytes is ever raised to or past this figure, the test says so
+// instead of quietly passing.
+const oversizeBody = 128 << 10
+
 // missingCLI points CLI_BIN at a path that cannot exist, for the duration of
 // one test. t.Setenv restores the previous value, and t.TempDir is removed on
 // the way out, so nothing leaks between tests.
@@ -125,7 +139,12 @@ func TestMalformedBodiesAreRejected(t *testing.T) {
 // too big, and the client can act on that distinction.
 func TestOversizedBodyIsRejected(t *testing.T) {
 	missingCLI(t)
-	huge := fmt.Sprintf(`{"query":%q}`, strings.Repeat("a", maxBodyBytes+1))
+	if maxBodyBytes >= oversizeBody {
+		t.Fatalf("maxBodyBytes = %d is at or above the probe size %d; this test can no\n"+
+			"longer tell a rejected body from an accepted one. Raise oversizeBody\n"+
+			"deliberately if the limit was meant to grow.", maxBodyBytes, oversizeBody)
+	}
+	huge := fmt.Sprintf(`{"query":%q}`, strings.Repeat("a", oversizeBody))
 	for _, ep := range apiEndpoints() {
 		code, body := postBody(t, ep, huge)
 		if code != http.StatusRequestEntityTooLarge {
