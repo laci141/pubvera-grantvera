@@ -729,7 +729,7 @@
     // (exportShaped keys off COLS, bibEntry reads the raw API fields). Keys that
     // are URLs, dates, identifiers or opportunity numbers are left byte-exact,
     // and non-strings (money) are untouched.
-    const NORM_SKIP = /url|link|date|number|num|_num|id$|^id$|code/i;
+    const NORM_SKIP = /url|link|date|number|num\b|_num|id$|^id$|code/i;
     function normRecord(r) {
       if (!r || typeof r !== 'object' || Array.isArray(r)) return r;
       const out = Array.isArray(r) ? r.slice() : Object.assign({}, r);
