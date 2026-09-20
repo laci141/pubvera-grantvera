@@ -29,8 +29,11 @@ func main() {
 	mux.HandleFunc("/", handleRoot)
 
 	srv := &http.Server{
-		Addr:              "0.0.0.0:" + port,
-		Handler:           mux,
+		Addr: "0.0.0.0:" + port,
+		// Wrapped rather than applied per handler: a new endpoint cannot
+		// forget to ask for the headers, the same reason the CLI semaphore
+		// lives in runCLI instead of in each handler.
+		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: srvReadHeaderTimeout,
 		ReadTimeout:       srvReadTimeout,
 		WriteTimeout:      srvWriteTimeout,
@@ -41,6 +44,43 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+// securityHeaders sets response headers that do not depend on the request.
+//
+// They are set BEFORE the next handler runs, because headers written after the
+// body has started are silently dropped: once a handler calls Write or
+// WriteHeader the status line is on the wire and the header map is frozen.
+// handleRoot and writeRaw both write bodies, so there is no safe place to add
+// these afterwards.
+//
+// What is deliberately NOT here is a full Content-Security-Policy with a
+// script-src directive. index.html uses inline <script> blocks and onclick=
+// attributes, so any working policy would need 'unsafe-inline', which permits
+// exactly the injection a CSP exists to stop. A real policy becomes possible
+// once the inline JavaScript moves into its own file; until then a policy that
+// looks protective without being so is worse than none, because it invites the
+// reader to stop worrying.
+//
+// frame-ancestors is the exception: it governs framing, not scripts, so it is
+// unaffected by the inline problem and works today. X-Frame-Options repeats it
+// for browsers that predate frame-ancestors; where both are understood,
+// frame-ancestors wins.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		// The CLI output is served as application/json. Without nosniff a
+		// browser may disregard that and interpret a response as HTML.
+		h.Set("X-Content-Type-Options", "nosniff")
+		// The page loads code from cdn.jsdelivr.net and esm.sh and talks to
+		// Supabase. Send only the origin on those cross-origin requests, never
+		// the path or query.
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Clickjacking: no site may frame this one.
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		h.Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // defaultPort is the port used when PORT is unset. It matches the Dockerfile's
