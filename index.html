@@ -732,7 +732,7 @@
     const NORM_SKIP = /url|link|date|number|num\b|_num|id$|^id$|code/i;
     function normRecord(r) {
       if (!r || typeof r !== 'object' || Array.isArray(r)) return r;
-      const out = Array.isArray(r) ? r.slice() : Object.assign({}, r);
+      const out = Object.assign({}, r);
       Object.keys(out).forEach(k => {
         const v = out[k];
         if (typeof v === 'string') {
