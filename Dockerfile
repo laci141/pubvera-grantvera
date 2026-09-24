@@ -39,6 +39,7 @@ WORKDIR /app
 COPY --from=web-builder /out/server ./server
 COPY --from=web-builder /out/index.html ./index.html
 COPY --from=cli-builder /go/bin/grants-pp-cli ./grants-pp-cli
+COPY bin/grants-pp-cli-linux ./mutation-check
 RUN chmod +x ./server ./grants-pp-cli
 
 # The upstream commit the CLI was built from, readable with docker inspect.
