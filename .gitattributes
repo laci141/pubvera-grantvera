@@ -1,19 +1,10 @@
 *.go text eol=lf
 
-# The vendored CLI is a ~10 MB binary that git cannot delta-compress: every
-# vendoring adds another full copy to the history, permanently. Measured on
-# 2026-09-20: 8 distinct blobs, .git at 44 MB, roughly 86% of the repository.
-#
-# LFS stores a ~130 byte pointer in the commit and keeps the binary outside the
-# object database, so a clone fetches only the current version instead of all
-# eight.
-#
-# This stops future growth only. The eight blobs already in the history stay
-# where they are: removing them means rewriting history, which invalidates every
-# existing clone and every commit hash the server and CI refer to. That is a
-# separate decision, not a side effect of this one.
-#
-# Anyone checking out this repository needs git-lfs installed, and CI must
-# checkout with lfs: true — without it the build receives the pointer file and
-# tries to execute 130 bytes of text as a binary.
-bin/grants-pp-cli-linux filter=lfs diff=lfs merge=lfs -text
+# There is no Git LFS rule any more. The vendored CLI binary
+# (bin/grants-pp-cli-linux) was the only LFS-tracked file and, measured on
+# 2026-09-20, about 86% of the repository. The image now builds the CLI from a
+# pinned upstream commit (see the Dockerfile), so the binary and vendor-cli.sh
+# were removed and no new copies are added. The old blobs and LFS objects stay
+# in the history: removing those means rewriting history, which invalidates
+# every existing clone and every commit hash the server and CI refer to. That
+# is a separate decision.

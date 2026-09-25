@@ -1,17 +1,20 @@
 # Grantvera
 
 Grant opportunity search for the Pubvera platform. A small Go HTTP server that
-serves a single-page frontend and forwards searches to a vendored
-`grants-pp-cli` binary, which talks to Grants.gov, NIH RePORTER and NSF.
+serves a single-page frontend and forwards searches to the `grants-pp-cli`
+binary, which talks to Grants.gov, NIH RePORTER and NSF. The image builds that
+CLI itself from one pinned printing-press-library commit; no binary is kept in
+this repository.
 
 Part of the eight-app Pubvera suite. Runs behind Caddy in production, which
 protects `/api/*` with `forward_auth`.
 
 ## Requirements
 
-- Go 1.26 (matches the Docker builder stage)
-- The vendored CLI at `bin/grants-pp-cli-linux` for container builds
+- Go 1.26 (matches the Docker builder stages)
 - Docker and Docker Compose for deployment
+- For local runs only: a `grants-pp-cli` binary, built from the same commit the
+  Dockerfile pins (see [The CLI](#the-cli))
 
 ## Configuration
 
@@ -118,19 +121,35 @@ go run .
 Then open `http://localhost:8095`. The CLI binary must be reachable; set
 `CLI_BIN` if it is not at `./grants-pp-cli`.
 
-## Vendoring the CLI
+## The CLI
+
+The Dockerfile builds `grants-pp-cli` with `go install` from one pinned
+printing-press-library commit, set by the global `ARG PP_LIBRARY_COMMIT` line,
+and stamps that commit on the image as the label `org.pubvera.cli.commit`.
+
+To get the same CLI for a local run, use the commit from that line:
 
 ```
-./vendor-cli.sh [path-to-cli-source]
+go install github.com/mvanhorn/printing-press-library/library/health/grants/cmd/grants-pp-cli@<commit>
 ```
 
-The default source path is machine-specific to the current developer's
-workstation. Pass the path explicitly on any other machine.
+To move to a newer CLI, change the commit on that one line. Before merging,
+compare the new CLI's `version` and the output of a stable query against the
+running one, so any difference is known and explained.
+
+CI builds the image before pushing and fails if the label does not match the
+commit in the Dockerfile, so an image that cannot say which upstream commit its
+CLI came from never reaches `:latest`.
+
+The CLI used to be a pre-built binary in `bin/`, produced by `vendor-cli.sh`
+and stored with Git LFS. Both were removed; the old copies remain only in the
+history.
 
 ## Deployment
 
 Pushing to `main` triggers CI: formatting, vet, test, govulncheck, inline JS
-check, build, push to GHCR. Wait for green before deploying.
+check, the CLI label check, build, push to GHCR. Wait for green before
+deploying.
 
 ```
 ssh root@178.105.220.79
@@ -139,10 +158,13 @@ docker inspect grantvera --format '{{.Image}}'
 docker compose pull
 docker compose up -d
 docker inspect grantvera --format '{{.Image}}'
+docker inspect grantvera --format '{{index .Config.Labels "org.opencontainers.image.revision"}} cli={{index .Config.Labels "org.pubvera.cli.commit"}}'
 ```
 
 The proof of a deploy is that the two image IDs **differ** — not that the
 container is running. A container that is up may well be running the old image.
+The last line shows which app commit and which CLI commit are actually live;
+the first must match `git rev-parse HEAD` locally.
 
 The Alpine base is pinned to a specific minor so two builds made on different
 days share the same base. Moving to a newer minor is a deliberate change.
