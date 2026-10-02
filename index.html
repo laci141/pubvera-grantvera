@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Grantvera searches research grants and awards across NIH RePORTER, NSF and Grants.gov using open, keyless data. Filter, sort and export award records to Excel, CSV, BibTeX or JSON.">
-  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
@@ -507,6 +507,7 @@
          before sign-in existed. Wired up by the module script at the end. -->
     <div class="auth-bar" id="authBar" hidden>
       <span class="auth-email" id="authEmail" hidden></span>
+      <span class="auth-email" id="authUnavailable" hidden>Sign-in is unavailable: a required script did not load.</span>
       <button type="button" class="auth-btn auth-btn-primary" id="authSignInBtn" hidden>Sign in with Google</button>
       <button type="button" class="auth-btn" id="authSignOutBtn" hidden>Sign out</button>
     </div>
@@ -1555,6 +1556,11 @@
     // previous behaviour of showing the error text in the one-line red box.
     function errorHTML(err) {
       const st = err && err.status, d = (err && err.data) || {};
+      if (st === 401 && window.pubveraAuth && window.pubveraAuth.unavailable) {
+        // The Supabase script did not load, so a sign-in prompt could not work.
+        return '<div class="errcard"><h4>Sign-in required</h4>' +
+          '<p>Sign-in is unavailable: a required script did not load.</p></div>';
+      }
       if (st === 401) {
         // The raw error ("missing/invalid token") tells the user nothing they can
         // act on, and the remedy is always the same, so it is not shown.
@@ -1663,7 +1669,7 @@
     const outBtn  = document.getElementById('authSignOutBtn');
 
     // Installed first so the searches and the 401 error card can always ask, even
-    // if the config fetch or the module import below never completes.
+    // if the config fetch or the script load below never completes.
     window.pubveraAuth = { enabled: false, signIn() {}, signOut() {} };
 
     async function initAuth() {
@@ -1680,10 +1686,31 @@
       // Either field empty: skip Supabase entirely.
       if (!url || !key) return;
 
-      // Dynamic import, not a static one: a static import runs before the fetch
-      // above, so an unconfigured page would still pay for the library.
-      const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2.117.0?deps=iceberg-js@0.8.1');
-      const sb = createClient(url, key);
+      // supabase-js 2.117.0, UMD build (global `supabase`), pinned with SRI.
+      // Injected only here, after the config check, so an unconfigured page
+      // still downloads nothing. Not a dynamic import(): it cannot carry an
+      // integrity hash, and the previous ESM CDN entry was a stub pulling
+      // further modules that included unversioned polyfills (/node/*.mjs).
+      // To upgrade: change the version in the URL and recompute the sha384
+      //   openssl dgst -sha384 -binary supabase.js | openssl base64 -A
+      try {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.0/dist/umd/supabase.js';
+          s.integrity = 'sha384-xPW3QHswsICVC2mW6BFNwMbhpLkbZ133fKOhxNx3QGGgAOJfL3O9t8r2aWn1aez6';
+          s.crossOrigin = 'anonymous';
+          s.onload = resolve;
+          s.onerror = reject; // network failure or integrity mismatch
+          document.head.appendChild(s);
+        });
+      } catch (_) {
+        // Say so, instead of a sign-in prompt that cannot work.
+        window.pubveraAuth.unavailable = true;
+        document.getElementById('authUnavailable').hidden = false;
+        bar.hidden = false;
+        return;
+      }
+      const sb = window.supabase.createClient(url, key);
       window.sb = sb;
 
       window.pubveraAuth = {

@@ -130,6 +130,12 @@ jobs:
           done
           echo "$n inline block(s) parse"
 
+      # go test does not run the node tests in tools/. "|| exit 1" fails the
+      # step on the first failing test without relying on the shell's -e.
+      - name: Run JS tests
+        run: |
+          for t in tools/*_test.js; do echo "== $t"; node "$t" || exit 1; done
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
 
