@@ -781,14 +781,21 @@
     // --- data model ---------------------------------------------------------
     // Raw API rows, exactly as each module received them.
     const lastData = { open: null, nih: null, nsf: null };
-    // Per-module view state: the quick filter text, the sort column and direction,
-    // and the form-level filters that were in effect when the query ran.
+    // Per-module view state: the quick filter text and the sort column and direction.
     const view = {
-      open: { filter: '', sort: -1, dir: 1, formFilters: [] },
-      nih:  { filter: '', sort: -1, dir: 1, formFilters: [] },
-      nsf:  { filter: '', sort: -1, dir: 1, formFilters: [] }
+      open: { filter: '', sort: -1, dir: 1 },
+      nih:  { filter: '', sort: -1, dir: 1 },
+      nsf:  { filter: '', sort: -1, dir: 1 }
     };
     const queryOf = { open: '', nih: '', nsf: '' };
+    // The search inputs actually sent with the last successful query, per
+    // module. Exports read these, never the live form: a slider moved after the
+    // search must not relabel rows that were fetched with the old value.
+    const lastParams = { open: null, nih: null, nsf: null };
+    // Mirrors validateQueryRows in main.go: a missing or non-positive rows value
+    // is replaced by the default there, so the export states what the CLI got.
+    const DEFAULT_ROWS = 15;
+    function sentRows(n) { return n > 0 ? n : DEFAULT_ROWS; }
 
     const SOURCE = { open: 'Grants.gov', nih: 'NIH RePORTER', nsf: 'NSF Awards' };
     const ANALYSIS_LABEL = {
@@ -882,13 +889,34 @@
       return rows;
     }
 
-    // Filters currently narrowing the view, in human-readable form. Used by the
-    // origin line so an exported file states what produced it.
+    // Search inputs as sent, always stated, empty ones included: an export
+    // with no filter text cannot say whether "no date" was chosen or lost.
+    function serverFilters(key) {
+      const p = lastParams[key];
+      if (!p) return [];
+      const out = [];
+      if (key === 'open') {
+        // The CLI asks Grants.gov for posted opportunities only (grantsgov.go).
+        out.push('posted only');
+        out.push(p.before ? 'closing before ' + p.before : 'no closing date');
+        out.push(p.agency ? 'agency: ' + p.agency : 'any agency');
+      } else {
+        out.push(p.min > 0 ? 'min amount USD ' + usd(p.min) : 'no minimum amount');
+        if (key === 'nih') out.push(p.year ? 'FY' + p.year : 'all fiscal years');
+      }
+      out.push('up to ' + p.rows + ' rows');
+      return out;
+    }
+
+    // Filters behind the exported rows, in human-readable form: the server
+    // filters first, then the quick filter and column sort applied on the page.
+    // Used by the origin line and JSON export.filters so both say the same.
     function activeFilters(key) {
       const st = view[key];
-      const out = [];
-      if (String(st.filter || '').trim()) out.push('"' + String(st.filter).trim() + '"');
-      (st.formFilters || []).forEach(f => out.push(f));
+      const out = serverFilters(key);
+      if (String(st.filter || '').trim()) out.push('filter: "' + String(st.filter).trim() + '"');
+      const sc = st.sort >= 0 && COLS[key][st.sort];
+      if (sc) out.push('sorted by ' + sc.label + ', ' + (st.dir > 0 ? 'ascending' : 'descending'));
       return out;
     }
 
@@ -936,13 +964,16 @@
       const total = (lastData[key] || []).length;
       const shown = exportRows(key).rows.length;
       const scope = exportRows(key).scope;
+      // The API total whenever it is known, even when it equals the rows
+      // loaded: "37 of 37" alone cannot be told apart from a run capped at 37.
+      const matched = (lastMeta[key] || {}).total;
       const parts = [
         'Grantvera export',
         ANALYSIS_LABEL[key],
         'query: "' + (queryOf[key] || '') + '"',
         'showing ' + shown + ' of ' + total + ' rows loaded' +
-          ((lastMeta[key] || {}).total > total
-            ? ' (' + (lastMeta[key].total).toLocaleString('en-US') + ' ' + MATCH_NOUN[key] + ' matched in total)'
+          (typeof matched === 'number'
+            ? ' (' + matched.toLocaleString('en-US') + ' ' + MATCH_NOUN[key] + ' matched in total)'
             : '')
       ];
       // NSF alone has no registry total: its API returns a recent pool that the
@@ -968,7 +999,7 @@
           kh.map(k => k.word + ' ' + k.hits.toLocaleString('en-US')).join(', ') +
           ' (Grants.gov matches any word, not all)');
       }
-      if (scope) parts.push('filter: ' + scope);
+      if (scope) parts.push(scope);
       parts.push('source: ' + SOURCE[key]);
       parts.push(todayISO());
       return parts.join(' · ');
@@ -1433,11 +1464,12 @@
     // match count, the typical-award estimate, the relevance counts. Kept per
     // module so the screen can say what the row list alone cannot.
     const lastMeta = {};
-    function bindModule(key, rows, query, formFilters, meta) {
+    function bindModule(key, rows, query, params, meta) {
       lastData[key] = Array.isArray(rows) ? rows.map(normRecord) : rows;
       lastMeta[key] = meta || {};
       queryOf[key] = query;
-      view[key] = { filter: '', sort: -1, dir: 1, formFilters: formFilters || [] };
+      lastParams[key] = params;
+      view[key] = { filter: '', sort: -1, dir: 1 };
       registerView(key, () => ({ rows: exportShaped(key), filters: activeFilters(key) }));
     }
 
@@ -1609,10 +1641,8 @@
       if (agency) body.agency = agency;
       try {
         const d = await callApi('/api/search', body, out, document.getElementById('open-btn'));
-        const ff = [];
-        if (before) ff.push('closing before ' + before);
-        if (agency) ff.push('agency ' + agency);
-        bindModule('open', d.opportunities || [], query, ff, { total: d.totalHits, source: 'open', keywordHits: d.keyword_hits });
+        const params = { before, agency, rows: sentRows(body.rows) };
+        bindModule('open', d.opportunities || [], query, params, { total: d.totalHits, source: 'open', keywordHits: d.keyword_hits });
         renderResult('open', out, 'grantvera-open-grants.json');
       } catch (err) { showError(out, err); }
     }
@@ -1629,10 +1659,8 @@
       if (year) body.year = +year;
       try {
         const d = await callApi('/api/nih', body, out, document.getElementById('nih-btn'));
-        const ff = [];
-        if (min > 0) ff.push('min amount USD ' + usd(min));
-        if (year) ff.push('FY' + year);
-        bindModule('nih', d.projects || [], query, ff, { total: d.total, typical: d.typical_award, includeCenters: d.include_centers, year: year ? +year : 0 });
+        const params = { min, year, rows: sentRows(body.rows) };
+        bindModule('nih', d.projects || [], query, params, { total: d.total, typical: d.typical_award, includeCenters: d.include_centers, year: year ? +year : 0 });
         renderResult('nih', out, 'grantvera-nih-awards.json');
       } catch (err) { showError(out, err); }
     }
@@ -1647,9 +1675,8 @@
       if (min > 0) body.min_amount = min;
       try {
         const d = await callApi('/api/nsf', body, out, document.getElementById('nsf-btn'));
-        const ff = [];
-        if (min > 0) ff.push('min amount USD ' + usd(min));
-        bindModule('nsf', d.awards || [], query, ff, { relevance: d.relevance });
+        const params = { min, rows: sentRows(body.rows) };
+        bindModule('nsf', d.awards || [], query, params, { relevance: d.relevance });
         renderResult('nsf', out, 'grantvera-nsf-awards.json');
       } catch (err) { showError(out, err); }
     }
