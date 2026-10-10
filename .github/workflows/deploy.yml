@@ -176,6 +176,40 @@ jobs:
           fi
           echo "label matches the pinned commit"
 
+      # The server ran as root (UID 0, measured on the host with docker top on
+      # 2026-10-10). This starts the image exactly as it ships, waits for
+      # /healthz, and then reads the UID of PID 1 from /proc — the running
+      # process, not just the image's USER setting. Order matters: a server
+      # that cannot start is reported as a start failure, not as a UID failure.
+      - name: Check the image runs as non-root
+        run: |
+          set -euo pipefail
+          want=10001
+          cid=$(docker run -d grantvera-label-check:ci)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          healthy=0
+          for i in $(seq 1 30); do
+            if docker exec "$cid" wget -q -O /dev/null "http://localhost:8095/healthz"; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$healthy" -ne 1 ]; then
+            echo "server did not answer /healthz within 30 s"
+            docker logs "$cid" || true
+            exit 1
+          fi
+          echo "healthz answered"
+          uid=$(docker exec "$cid" awk '/^Uid:/ {print $2}' /proc/1/status)
+          echo "expected uid: ${want}"
+          echo "actual uid:   ${uid}"
+          if [ "$uid" != "$want" ]; then
+            echo "PID 1 runs as uid ${uid}, not ${want}"
+            exit 1
+          fi
+          echo "PID 1 runs as non-root"
+
       # Skipped on pull_request: a PR build proves the image builds, but has no
       # reason to hold registry credentials.
       - name: Log in to GHCR

@@ -34,7 +34,9 @@ COPY index.html /out/
 # base image. Still receives Alpine security patches within 3.24; moving to a
 # newer minor must be a deliberate change, not a silent one.
 FROM alpine:3.24
-RUN apk add --no-cache ca-certificates
+# The unprivileged user the server runs as (see USER below). UID 10001 is the
+# same as pubvera-bibliovera, so host-side checks use one number everywhere.
+RUN apk add --no-cache ca-certificates && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=web-builder /out/server ./server
 COPY --from=web-builder /out/index.html ./index.html
@@ -54,4 +56,9 @@ EXPOSE 8095
 # overridden PORT keeps the healthcheck pointing at the right port instead of
 # reporting unhealthy against a working app.
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O- "http://localhost:${PORT:-8095}/healthz" || exit 1
+# The server ran as root (UID 0, measured with docker top on 2026-10-10). The
+# container has no mounts and writes nothing (docker diff = 0 lines), so the
+# root-owned, world-readable files under /app are enough for this user. CI
+# checks the UID of PID 1 in the running image.
+USER app
 CMD ["./server"]
