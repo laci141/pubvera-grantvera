@@ -35,7 +35,17 @@ func runHelper(mode string) int {
 		os.Stdout.Write(bytes.Repeat([]byte("x"), maxCLIStdout+1))
 		return 0
 	case "stdout-exact":
-		os.Stdout.Write(bytes.Repeat([]byte("x"), maxCLIStdout))
+		// A JSON string of exactly maxCLIStdout bytes: the output must be valid
+		// JSON to pass the success path, and still sit on the limit.
+		os.Stdout.Write([]byte(`"` + strings.Repeat("x", maxCLIStdout-2) + `"`))
+		return 0
+	case "json-truncated":
+		os.Stdout.Write([]byte(`{"results":[`))
+		return 0
+	case "json-valid":
+		os.Stdout.Write([]byte(`{"results":[]}`))
+		return 0
+	case "stdout-empty":
 		return 0
 	case "stderr-flood-ok":
 		os.Stdout.Write([]byte(`{"ok":true}`))

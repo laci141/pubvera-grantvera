@@ -304,6 +304,14 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 	} else {
 		log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d%s", label, waitMS, elapsed, stdout.Len(), trunc)
 	}
+	// Exit 0 and within the limit still proves nothing about the content: a CLI
+	// that crashes mid-write or prints a banner would otherwise reach the client
+	// as a 200. Empty output is not valid JSON either. The content is never
+	// logged: it may contain query text.
+	if !json.Valid(stdout.Bytes()) {
+		log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=invalid_json bytes=%d%s", label, waitMS, elapsed, stdout.Len(), trunc)
+		return nil, errors.New("CLI returned invalid JSON")
+	}
 	return stdout.Bytes(), nil
 }
 
