@@ -72,7 +72,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		// The CLI output is served as application/json. Without nosniff a
 		// browser may disregard that and interpret a response as HTML.
 		h.Set("X-Content-Type-Options", "nosniff")
-		// The page loads code from cdn.jsdelivr.net and esm.sh and talks to
+		// The page loads code from cdn.jsdelivr.net and talks to
 		// Supabase. Send only the origin on those cross-origin requests, never
 		// the path or query.
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
