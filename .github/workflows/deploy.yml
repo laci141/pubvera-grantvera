@@ -1,9 +1,10 @@
 name: Build and Deploy Grantvera
 
-# Every run builds and tests. Only a run on refs/heads/main may log in to GHCR
-# and push, so pull_request runs and manual or tag runs from any other ref build
-# the image but never publish it. Watchtower on the server deploys whatever :latest
-# points at, so :latest must only ever move from main.
+# Two jobs. "validate" runs every check on every trigger and holds read-only
+# permissions only. "publish" runs only after validate passed, only on refs/heads/main,
+# and is the only job that holds package write permission. Watchtower on the
+# server deploys whatever :latest points at, so :latest must only ever move
+# from main, and the job that can write it must not run any test code.
 on:
   push:
     branches: [main]
@@ -21,17 +22,19 @@ env:
   GOVULNCHECK_VERSION: v1.8.0
 
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
-      packages: write
     steps:
       # The checkout no longer fetches Git LFS objects. The only LFS-tracked
       # file was the vendored CLI binary, which is gone: the Dockerfile builds
       # the CLI from a pinned upstream commit instead.
+      # persist-credentials is off: nothing in this job pushes to git.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -148,8 +151,8 @@ jobs:
       # the job, so an image that cannot say where its CLI came from never
       # reaches :latest.
       #
-      # The second build below reuses the gha cache this one fills, so the
-      # extra cost is the load into the runner's Docker, not a rebuild.
+      # This job never pushes. The publish job rebuilds the same Dockerfile
+      # from the gha cache this build fills.
       - name: Build image for the label check
         uses: docker/build-push-action@v7
         with:
@@ -210,23 +213,37 @@ jobs:
           fi
           echo "PID 1 runs as non-root"
 
-      # Only a run on main publishes. Other runs build the image but hold no
-      # registry credentials.
+  # Runs only after every check in validate passed. Only this job holds the
+  # package write permission, and it runs no test code of its own: it builds the
+  # same Dockerfile from the same commit and pushes it.
+  publish:
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Log in to GHCR
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Same gate as the login above: the image is pushed only by a run on main,
-      # so :latest only ever moves from main.
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
