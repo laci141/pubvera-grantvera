@@ -259,12 +259,23 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 	// on failure is its own usage text, its version banner and raw upstream
 	// messages, none of it bounded. That is operator information: it belongs in
 	// the log, where it is already recorded and capped, not in an HTTP response.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := &cappedStdout{max: maxCLIStdout, cancel: cancel}
+	stderr := &cappedStderr{max: maxCLIStderr}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	runStart := time.Now()
 	err := cmd.Run()
 	elapsed := time.Since(runStart).Milliseconds()
+	trunc := ""
+	if stderr.truncated {
+		trunc = " stderr_truncated=true"
+	}
+	// Checked before the deadline: the overflow cancels ctx to kill the child,
+	// which would otherwise be reported as a timeout. Never return partial JSON.
+	if stdout.overflow {
+		log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=stdout_limit limit=%d%s", label, waitMS, elapsed, maxCLIStdout, trunc)
+		return nil, errors.New("CLI output too large")
+	}
 	if err != nil {
 		// Distinguish the deadline from a genuine CLI failure: "CLI error:
 		// signal: killed" is what a timeout looks like otherwise, and it sends
@@ -277,9 +288,9 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 		// next to the error — trimmed, and bounded so one runaway child cannot
 		// flood the log.
 		if e := strings.TrimSpace(stderr.String()); e != "" {
-			log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v stderr=%s", label, waitMS, elapsed, err, truncate(e, 2000))
+			log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v%s stderr=%s", label, waitMS, elapsed, err, trunc, truncate(e, 2000))
 		} else {
-			log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v", label, waitMS, elapsed, err)
+			log.Printf("cli: fail cmd=%s wait_ms=%d elapsed_ms=%d err=%v%s", label, waitMS, elapsed, err, trunc)
 		}
 		return nil, fmt.Errorf("CLI error: %v", err)
 	}
@@ -289,12 +300,67 @@ func runCLI(ctx context.Context, args ...string) ([]byte, error) {
 	// failure discarded exactly the warnings that explain a slow but successful
 	// request. Operator information, never sent to the client.
 	if w := strings.TrimSpace(stderr.String()); w != "" {
-		log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d stderr=%s", label, waitMS, elapsed, stdout.Len(), truncate(w, 300))
+		log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d%s stderr=%s", label, waitMS, elapsed, stdout.Len(), trunc, truncate(w, 300))
 	} else {
-		log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d", label, waitMS, elapsed, stdout.Len())
+		log.Printf("cli: ok cmd=%s wait_ms=%d elapsed_ms=%d bytes=%d%s", label, waitMS, elapsed, stdout.Len(), trunc)
 	}
 	return stdout.Bytes(), nil
 }
+
+// CLI output caps. Measured 2026-10-16 on the live server, query "cancer",
+// rows=100, CLI stdout bytes: search 35466, nih 42551, nsf 35015. The largest,
+// 42551 bytes (about 41.6 KiB), leaves stdout headroom of roughly 24x under
+// 1 MiB. With four CLI slots the worst case is about 4.3 MiB held at once.
+const (
+	maxCLIStdout = 1 << 20
+	maxCLIStderr = 64 << 10
+)
+
+// cappedStdout stores at most max bytes. Past that it sets overflow, stops
+// storing and cancels the command context so the child is killed; its output
+// is then discarded rather than returned truncated.
+type cappedStdout struct {
+	buf      bytes.Buffer
+	max      int
+	overflow bool
+	cancel   context.CancelFunc
+}
+
+func (c *cappedStdout) Write(p []byte) (int, error) {
+	if c.overflow {
+		return len(p), nil
+	}
+	if c.buf.Len()+len(p) > c.max {
+		c.overflow = true
+		c.cancel()
+		return len(p), nil
+	}
+	return c.buf.Write(p)
+}
+
+func (c *cappedStdout) Len() int      { return c.buf.Len() }
+func (c *cappedStdout) Bytes() []byte { return c.buf.Bytes() }
+
+// cappedStderr keeps the first max bytes for the log and drains the rest:
+// it always reports a full write, so the child never blocks on a full pipe.
+type cappedStderr struct {
+	buf       bytes.Buffer
+	max       int
+	truncated bool
+}
+
+func (c *cappedStderr) Write(p []byte) (int, error) {
+	n := len(p)
+	if room := c.max - c.buf.Len(); n > room {
+		c.truncated = true
+		p = p[:room]
+	}
+	c.buf.Write(p)
+	return n, nil
+}
+
+func (c *cappedStderr) Len() int       { return c.buf.Len() }
+func (c *cappedStderr) String() string { return c.buf.String() }
 
 func writeRaw(w http.ResponseWriter, b []byte) {
 	w.Header().Set("Content-Type", "application/json")

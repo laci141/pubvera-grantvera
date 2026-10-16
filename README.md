@@ -109,7 +109,20 @@ cli: ok cmd=search wait_ms=0 elapsed_ms=1843 bytes=20114
 
 CLI stderr goes to the log — trimmed and capped — including on successful runs,
 because the CLI reports its rate-limit and retry warnings there. It is never
-sent to the client: it is operator information and its size is unbounded.
+sent to the client: it is operator information.
+
+CLI output is bounded in memory:
+
+- stdout: 1 MiB. A run that writes more is killed, logged as
+  `cli: fail ... err=stdout_limit limit=1048576`, and the request gets a `502`
+  with `CLI output too large`; truncated JSON is never returned.
+- stderr: the first 64 KiB are kept for the log; the rest is read and
+  discarded so the child never blocks, and the log line gets
+  `stderr_truncated=true`.
+
+The limits are based on sizes measured on 2026-10-16 (query "cancer",
+rows=100): search 35466, nih 42551, nsf 35015 bytes of stdout, about 41.6 KiB
+at most. With four CLI slots the worst case is about 4.3 MiB.
 
 ## Local development
 
