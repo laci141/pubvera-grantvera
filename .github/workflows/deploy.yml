@@ -1,9 +1,9 @@
 name: Build and Deploy Grantvera
 
-# pull_request runs every check below against the proposed change, but never
-# publishes an image: the GHCR login and the push are both gated on the event
-# not being a pull_request. Watchtower on the server deploys whatever :latest
-# points at, so a PR that could push :latest would deploy unmerged code.
+# Every run builds and tests. Only a run on refs/heads/main may log in to GHCR
+# and push, so pull_request runs and manual or tag runs from any other ref build
+# the image but never publish it. Watchtower on the server deploys whatever :latest
+# points at, so :latest must only ever move from main.
 on:
   push:
     branches: [main]
@@ -210,23 +210,23 @@ jobs:
           fi
           echo "PID 1 runs as non-root"
 
-      # Skipped on pull_request: a PR build proves the image builds, but has no
-      # reason to hold registry credentials.
+      # Only a run on main publishes. Other runs build the image but hold no
+      # registry credentials.
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # On pull_request the image is built but not pushed, so :latest — and
-      # therefore what Watchtower deploys — only ever moves on main.
+      # Same gate as the login above: the image is pushed only by a run on main,
+      # so :latest only ever moves from main.
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
