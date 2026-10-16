@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -57,6 +58,9 @@ func cliSlotsFromEnv() int {
 	n, err := strconv.Atoi(raw)
 	if err != nil {
 		return defaultCLISlots
+	}
+	if n <= 0 {
+		log.Printf("WARN: CLI_MAX_CONCURRENT=%d disables the CLI concurrency bound; child processes are unbounded", n)
 	}
 	return n
 }
