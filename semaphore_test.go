@@ -235,3 +235,36 @@ func TestCLISemaphoreDisabledIsANoOp(t *testing.T) {
 		t.Errorf("unparseable env gave %d, want the default %d", got, defaultCLISlots)
 	}
 }
+
+// TestCLISlotsFromEnvWarnsWhenDisabled pins GRV-009: a disabled bound must be
+// visible in the startup log, while the returned value stays unchanged.
+func TestCLISlotsFromEnvWarnsWhenDisabled(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want int
+		warn bool
+	}{
+		{"0", 0, true},
+		{"-1", -1, true},
+		{"4", 4, false},
+	} {
+		t.Run("CLI_MAX_CONCURRENT="+tc.raw, func(t *testing.T) {
+			t.Setenv("CLI_MAX_CONCURRENT", tc.raw)
+			var got int
+			out := captureLog(t, func() { got = cliSlotsFromEnv() })
+			if got != tc.want {
+				t.Fatalf("cliSlotsFromEnv() = %d, want %d", got, tc.want)
+			}
+			if tc.warn {
+				if !strings.Contains(out, "WARN") || !strings.Contains(out, "CLI_MAX_CONCURRENT="+tc.raw) {
+					t.Errorf("log = %q, want a WARN naming CLI_MAX_CONCURRENT=%s", out, tc.raw)
+				}
+				if n := strings.Count(out, "WARN"); n != 1 {
+					t.Errorf("log has %d WARN lines, want exactly 1: %q", n, out)
+				}
+			} else if strings.Contains(out, "WARN") {
+				t.Errorf("log = %q, want no warning for CLI_MAX_CONCURRENT=%s", out, tc.raw)
+			}
+		})
+	}
+}
