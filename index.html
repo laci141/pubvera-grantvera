@@ -710,6 +710,9 @@
       return (ms - Date.UTC(1899, 11, 30)) / 86400000;
     }
     function usd(v) { return (Number(v) || 0).toLocaleString('en-US'); }
+    // A count from the API, or 0 when it is not a finite number, so a
+    // malformed field never reaches innerHTML as raw text.
+    function safeNum(v) { return (typeof v === 'number' && isFinite(v)) ? v : 0; }
     function todayISO() { return new Date().toISOString().slice(0, 10); }
     // Exports stamp a full timestamp: two exports on the same day must be tellable apart.
     function nowISO() { return new Date().toISOString(); }
@@ -1014,19 +1017,28 @@
     // none of them fold.
 
     // --- CSV (RFC4180). Excel-safe: BOM + CRLF + explicit separator hint. ----
+    // One CSV cell. A text value that a spreadsheet would run as a formula
+    // (leading = + - @ TAB CR LF, or the full-width ＝ ＋ － ＠ that Excel also
+    // accepts) gets a leading ' so it is shown as text (CSV formula injection).
+    // A JS number, or a string that is a plain number such as "-5" or "-1.5",
+    // is NOT prefixed: amounts must stay numeric so Excel can SUM and sort them.
+    function csvCell(v) {
+      // Booleans must be exported as text, otherwise Excel localises them
+      // (Hungarian Excel shows IGAZ / HAMIS instead of TRUE / FALSE).
+      if (v === null || v === undefined || v === false) return "";
+      if (v === true) return "Yes";
+      let s = (typeof v === "object") ? JSON.stringify(v) : String(v);
+      if (typeof v === "string" && /^[=+\-@\t\r\n＝＋－＠]/.test(s) &&
+          !/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) s = "'" + s;
+      if (/[",\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+
     function toCSV(key) {
       const rows = exportRows(key).rows;
       const cols = [];
       rows.forEach(r => Object.keys(r || {}).forEach(k => { if (cols.indexOf(k) === -1) cols.push(k); }));
-      const cell = v => {
-        // Booleans must be exported as text, otherwise Excel localises them
-        // (Hungarian Excel shows IGAZ / HAMIS instead of TRUE / FALSE).
-        if (v === null || v === undefined || v === false) return "";
-        if (v === true) return "Yes";
-        let s = (typeof v === "object") ? JSON.stringify(v) : String(v);
-        if (/[",\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
-        return s;
-      };
+      const cell = csvCell;
       // "sep=," tells Excel the delimiter regardless of the user's locale.
       const origin = '"' + exportHeader(key).replace(/"/g, '""') + '"';
       const lines = ["sep=,", origin, cols.map(cell).join(",")];
@@ -1313,7 +1325,7 @@
         // so claiming half of them sit inside a few-thousand-dollar band would
         // be plainly false. Word it as uncertainty about the median.
         if (m.typical.bracket_high > 0) {
-          s += ' — the median across all ' + m.typical.population.toLocaleString('en-US') +
+          s += ' — the median across all ' + safeNum(m.typical.population).toLocaleString('en-US') +
                ' award records that match this topic and fiscal year, counted before the minimum-amount filter is applied, lies between $' + usd(m.typical.bracket_low) +
                ' and $' + usd(m.typical.bracket_high) + '.';
         }
@@ -1329,12 +1341,12 @@
         bits.push(s);
       }
       if (m.relevance && m.relevance.examined > 0) {
-        let s = 'Searched ' + m.relevance.examined + ' recent NSF awards; ' +
-                m.relevance.matched + ' mention every word of the query, ' +
-                m.relevance.title_matched + ' in the title.';
+        let s = 'Searched ' + safeNum(m.relevance.examined) + ' recent NSF awards; ' +
+                safeNum(m.relevance.matched) + ' mention every word of the query, ' +
+                safeNum(m.relevance.title_matched) + ' in the title.';
         if (m.relevance.pool_error) {
           s += ' The search stopped early after an upstream error (' +
-               m.relevance.pages_fetched + ' of ' + m.relevance.pages_planned +
+               safeNum(m.relevance.pages_fetched) + ' of ' + safeNum(m.relevance.pages_planned) +
                ' pages), so these counts are a floor — retry for the full picture.';
         } else if (m.relevance.matched < 10) {
           s += ' Few awards use all of these words together — try fewer or broader words.';
@@ -1354,7 +1366,7 @@
         const dead = kh.filter(k => k.hits === 0).map(k => k.word);
         if (dead.length) {
           bits.push('Grants.gov matches any of your words, not all of them: ' +
-            kh.map(k => '"' + k.word + '" ' + k.hits.toLocaleString('en-US')).join(', ') +
+            kh.map(k => '"' + esc(k.word) + '" ' + safeNum(k.hits).toLocaleString('en-US')).join(', ') +
             '. ' + (dead.length === 1 ? 'That word' : 'Those words') +
             ' found nothing alone, so ' + (dead.length === 1 ? 'it' : 'they') +
             ' did not narrow this search — check the spelling, or search without ' +
