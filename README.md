@@ -25,7 +25,7 @@ and serves searches with all of them unset.
 | --- | --- | --- |
 | `PORT` | `8095` | Listen port, bound on `0.0.0.0`. Matches the Dockerfile `EXPOSE`/`HEALTHCHECK` and the compose file. |
 | `CLI_BIN` | `./grants-pp-cli` | Path to the child CLI binary. Set to `/app/grants-pp-cli` inside the image. |
-| `CLI_MAX_CONCURRENT` | `4` | Child CLI processes allowed to run at once. `0` or negative disables the bound; an unparseable value falls back to the default. |
+| `CLI_MAX_CONCURRENT` | `4` | Child CLI processes allowed to run at once. `0` or negative disables the bound and logs a `WARN` line at startup; an unparseable value falls back to the default. |
 | `SUPABASE_URL` | empty | Browser-side Supabase URL, served via `/config.json`. |
 | `SUPABASE_PUBLISHABLE_KEY` | empty | Supabase **publishable** key. Never the secret key — this one is designed to be visible in a browser, and Row Level Security protects the data. |
 
@@ -181,3 +181,35 @@ the first must match `git rev-parse HEAD` locally.
 
 The Alpine base is pinned to a specific minor so two builds made on different
 days share the same base. Moving to a newer minor is a deliberate change.
+
+## Updating pinned CDN scripts (SRI)
+
+Two third-party scripts are loaded from a CDN with a pinned Subresource
+Integrity hash. If the file and the hash differ, the browser refuses the
+script, so the version and the hash must always change together.
+
+| Script | Where the hash lives | Version |
+| --- | --- | --- |
+| `xlsx-js-style` (Excel export) | `index.html`, the `<script … integrity="…">` tag | `1.2.0` |
+| `@supabase/supabase-js` UMD (sign-in) | `index.html`, the `s.integrity = '…'` line in the loader | `2.117.0` |
+
+Verified on 2026-10-16: for both scripts the hash in the code equals the sha384
+of the file the CDN serves.
+
+To upgrade one of them:
+
+1. Change the version in the URL.
+2. Compute the new hash from the exact file the CDN serves at that URL:
+
+```
+   curl -s -o new.js "https://cdn.jsdelivr.net/npm/<package>@<version>/<path>"
+   printf 'sha384-' && openssl dgst -sha384 -binary new.js | openssl base64 -A && echo
+```
+
+3. Replace the old hash with the printed value, including the `sha384-`
+   prefix, in the same place in the code.
+4. Run `node tools/sri_test.js` (in Git Bash: `node.exe`); CI runs the same
+   check in the JS test step.
+
+Never copy a hash from another version or from a web page: compute it from the
+file.
