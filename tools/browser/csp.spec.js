@@ -1,0 +1,188 @@
+// Browser test for GRV-007 phase 1: index.html under the real CSP header.
+//
+// Run: cd tools/browser && npm install && npx playwright test
+//
+// The Go server is built from this checkout into the OS temp directory (so the
+// binary never shows up in git status) and started on a free port picked at
+// run time. Only /api/* is intercepted; the page itself, /config.json and the
+// Content-Security-Policy header come from the real server. With
+// script-src-attr 'none' an onclick= attribute does not run, so every control
+// below works only if it goes through the delegated listeners.
+"use strict";
+const { test, expect } = require("@playwright/test");
+const { execFileSync, spawn } = require("child_process");
+const net = require("net");
+const os = require("os");
+const path = require("path");
+
+const repo = path.join(__dirname, "..", "..");
+const bin = path.join(os.tmpdir(), "grantvera-browser-test", process.platform === "win32" ? "grantvera.exe" : "grantvera");
+
+let server;
+let baseURL;
+
+// Port 0 lets the OS choose; the listener is closed again and the port handed
+// to the server. Another process could take it in between, which would make
+// the health wait below fail loudly rather than test the wrong server.
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.on("error", reject);
+    s.listen(0, "127.0.0.1", () => {
+      const p = s.address().port;
+      s.close(() => resolve(p));
+    });
+  });
+}
+
+test.beforeAll(async () => {
+  execFileSync("go", ["build", "-o", bin, "."], { cwd: repo, stdio: "inherit" });
+  const port = await freePort();
+  baseURL = "http://127.0.0.1:" + port;
+  // Empty Supabase config: the page runs unauthenticated.
+  server = spawn(bin, [], {
+    cwd: repo,
+    env: { ...process.env, PORT: String(port), SUPABASE_URL: "", SUPABASE_PUBLISHABLE_KEY: "" },
+    stdio: "ignore",
+  });
+  const deadline = Date.now() + 15000;
+  for (;;) {
+    try {
+      const res = await fetch(baseURL + "/healthz");
+      if (res.ok) break;
+    } catch (_) { /* not listening yet */ }
+    if (Date.now() > deadline) throw new Error("server did not answer /healthz on " + baseURL);
+    await new Promise(r => setTimeout(r, 100));
+  }
+});
+
+test.afterAll(async () => {
+  if (server && server.exitCode === null) {
+    const exited = new Promise(r => server.once("exit", r));
+    server.kill();
+    await exited;
+  }
+});
+
+// Every console message and page error, so each test can assert that nothing
+// was refused by the CSP and that no script threw.
+function watch(page) {
+  const log = { console: [], pageErrors: [] };
+  page.on("console", m => log.console.push(m.type() + ": " + m.text()));
+  page.on("pageerror", e => log.pageErrors.push(String(e)));
+  return log;
+}
+const CSP_RE = /Content Security Policy|script-src-attr|inline event handler|Refused to execute/i;
+function expectNoCSPViolations(log) {
+  expect(log.console.filter(m => CSP_RE.test(m)), "CSP messages on the console").toEqual([]);
+  expect(log.pageErrors, "page errors").toEqual([]);
+}
+
+async function load(page) {
+  // The xlsx bundle on the CDN is not needed for these checks; keep the run
+  // offline-safe and fast.
+  await page.route("https://cdn.jsdelivr.net/**", r => r.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  const log = watch(page);
+  const res = await page.goto(baseURL + "/");
+  expect(res.headers()["content-security-policy"]).toContain("script-src-attr 'none'");
+  return log;
+}
+
+const OPEN_FIXTURE = {
+  totalHits: 2,
+  opportunities: [
+    { id: 1, number: "OPP-1", title: "Climate resilience 1", agency: "NSF", openDate: "01/15/2026", closeDate: "12/31/2026", oppStatus: "posted" },
+    { id: 2, number: "OPP-2", title: "Coastal flooding 2", agency: "DOC", openDate: "01/15/2026", closeDate: "12/31/2026", oppStatus: "posted" },
+  ],
+};
+
+test("a chip opens its modal with the prefill, the close button closes it", async ({ page }) => {
+  const log = await load(page);
+  const modal = page.locator("#modal-open");
+  await expect(modal).not.toHaveClass(/\bactive\b/);
+  await page.locator(".chip", { hasText: "Climate" }).click();
+  await expect(modal).toHaveClass(/\bactive\b/);
+  await expect(page.locator("#open-query")).toHaveValue("climate");
+  await modal.locator(".close-btn").click();
+  await expect(modal).not.toHaveClass(/\bactive\b/);
+  expectNoCSPViolations(log);
+});
+
+test("a bento card opens its modal without a prefill", async ({ page }) => {
+  const log = await load(page);
+  await page.locator(".bento-card.nsf").click();
+  await expect(page.locator("#modal-nsf")).toHaveClass(/\bactive\b/);
+  await expect(page.locator("#nsf-query")).toHaveValue("");
+  expectNoCSPViolations(log);
+});
+
+test("Enter in the query input sends the search to /api/, filter and download work", async ({ page }) => {
+  const log = await load(page);
+  const bodies = [];
+  await page.route("**/api/**", r => {
+    bodies.push({ url: r.request().url(), body: r.request().postDataJSON() });
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(OPEN_FIXTURE) });
+  });
+  await page.locator(".chip", { hasText: "Climate" }).click();
+  await page.locator("#open-query").press("Enter");
+  await expect(page.locator("#open_tw tbody tr")).toHaveCount(2);
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0].url).toBe(baseURL + "/api/search");
+  expect(bodies[0].body.query).toBe("climate");
+
+  // The result filter input (built as an HTML string) reaches onFilter.
+  await page.locator("#open-results .qfilter").fill("Coastal");
+  await expect(page.locator("#open_tw tbody tr")).toHaveCount(1);
+
+  // A download button (also built as an HTML string) calls downloadCSV with
+  // its key and filename.
+  const dl = page.waitForEvent("download");
+  await page.locator("#open-results button.dl", { hasText: "CSV" }).click();
+  expect((await dl).suggestedFilename()).toBe("grantvera-open-grants.csv");
+  expectNoCSPViolations(log);
+});
+
+test("the search button runs the search", async ({ page }) => {
+  const log = await load(page);
+  let hits = 0;
+  await page.route("**/api/nih", r => {
+    hits++;
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ total: 0, projects: [] }) });
+  });
+  await page.locator(".chip", { hasText: "Cancer" }).click();
+  await page.locator("#nih-btn").click();
+  await expect(page.locator("#nih-results")).toContainText("No results found");
+  expect(hits).toBe(1);
+  expectNoCSPViolations(log);
+});
+
+test("moving a slider updates its label, including formatMoney", async ({ page }) => {
+  const log = await load(page);
+  await page.locator(".bento-card.nih").click();
+  // openModal focuses the query field after 50 ms; wait for that, or it takes
+  // the focus back from the slider and the arrow key lands in the text field.
+  await expect(page.locator("#nih-query")).toBeFocused();
+  await expect(page.locator("#nih-rows-val")).toHaveText("15");
+  await page.locator("#nih-rows").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#nih-rows-val")).toHaveText("16");
+  await expect(page.locator("#nih-min-val")).toHaveText("$0");
+  await page.locator("#nih-min").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#nih-min-val")).toHaveText("$100K");
+  expectNoCSPViolations(log);
+});
+
+test("the sign-in button in a 401 card calls pubveraSignIn", async ({ page }) => {
+  const log = await load(page);
+  // Stand in for the Supabase module: enabled, and record the call.
+  await page.evaluate(() => {
+    window.pubveraAuth = { enabled: true, signIn() { window.__signInCalls = (window.__signInCalls || 0) + 1; }, signOut() {} };
+  });
+  await page.route("**/api/**", r => r.fulfill({ status: 401, contentType: "application/json", body: '{"error":"missing token"}' }));
+  await page.locator(".chip", { hasText: "AI" }).click();
+  await page.locator("#nsf-query").press("Enter");
+  await page.locator("#nsf-results .errcard button", { hasText: "Sign in with Google" }).click();
+  expect(await page.evaluate(() => window.__signInCalls)).toBe(1);
+  expectNoCSPViolations(log);
+});
