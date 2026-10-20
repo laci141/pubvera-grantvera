@@ -15,9 +15,9 @@ const path = require("path");
 const vm = require("vm");
 
 // The worktree may hold CRLF (core.autocrlf); the index holds LF.
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8").replace(/\r\n/g, "\n");
+const html = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8").replace(/\r\n/g, "\n");
 const start = html.indexOf("    function esc(s) {");
-const end = html.indexOf("  </script>", start);
+const end = html.length;
 if (start < 0 || end < 0) {
   console.error("FAIL: could not locate the classic script section in index.html");
   process.exit(1);

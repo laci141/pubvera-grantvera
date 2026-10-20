@@ -24,10 +24,10 @@ RUN CGO_ENABLED=0 go install -trimpath \
 FROM golang:1.26-alpine AS web-builder
 WORKDIR /build
 COPY go.mod ./
-COPY main.go semaphore.go index.html ./
+COPY main.go semaphore.go index.html app.js app-module.js ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/server .
-# Copy index.html to /out so it's available in runtime
-COPY index.html /out/
+# Copy index.html and its scripts to /out so they're available in runtime
+COPY index.html app.js app-module.js /out/
 
 # ---- Stage 3: minimal runtime ----
 # Pinned to a specific minor so two builds on different days share the same
@@ -40,6 +40,8 @@ RUN apk add --no-cache ca-certificates && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=web-builder /out/server ./server
 COPY --from=web-builder /out/index.html ./index.html
+COPY --from=web-builder /out/app.js ./app.js
+COPY --from=web-builder /out/app-module.js ./app-module.js
 COPY --from=cli-builder /go/bin/grants-pp-cli ./grants-pp-cli
 RUN chmod +x ./server ./grants-pp-cli
 

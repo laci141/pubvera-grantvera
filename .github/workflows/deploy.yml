@@ -91,47 +91,40 @@ jobs:
 
       - name: Check inline JavaScript
         run: |
-          # go vet does not see the JavaScript embedded in index.html, so a
-          # missing bracket there ships green and breaks the page at runtime.
-          # Each <script> block is extracted and parsed with node --check.
-          # A file that exists but yields no checkable block fails the build:
-          # silently checking nothing is the failure mode this guards against.
+          # go vet does not see the page's JavaScript, so a missing bracket
+          # there ships green and breaks the page at runtime. The code lives in
+          # app.js (classic script) and app-module.js (ES module); both are
+          # parsed with node --check, the module one as a module through an
+          # .mjs copy. A missing file fails the build: silently checking
+          # nothing is the failure mode this guards against. An inline
+          # <script> body in index.html fails it too, because the CSP
+          # (script-src without 'unsafe-inline') would refuse to run it.
           set -euo pipefail
-          html=""
-          for candidate in index.html web/index.html; do
-            if [ -f "$candidate" ]; then html="$candidate"; break; fi
+          for f in index.html app.js app-module.js; do
+            if [ ! -f "$f" ]; then
+              echo "$f is missing - refusing to pass silently"
+              exit 1
+            fi
           done
-          if [ -z "$html" ]; then
-            echo "no index.html found - nothing to check"
-            exit 0
-          fi
-          echo "checking $html"
-          tmp=$(mktemp -d)
           node -e '
-            const fs = require("fs"), path = require("path");
-            const html = fs.readFileSync(process.argv[1], "utf8");
-            const dir = process.argv[2];
+            const html = require("fs").readFileSync(process.argv[1], "utf8");
             const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
-            let m, i = 0;
+            let m, n = 0;
             while ((m = re.exec(html)) !== null) {
-              const attrs = m[1], body = m[2];
-              if (body.trim() === "") continue;
-              if (/\stype\s*=\s*["\x27](?!text\/javascript|module)/i.test(attrs)) continue;
-              const isModule = /\stype\s*=\s*["\x27]module["\x27]/i.test(attrs);
-              i += 1;
-              fs.writeFileSync(path.join(dir, "block" + i + (isModule ? ".mjs" : ".js")), body);
+              if (m[2].trim() === "") continue;
+              n += 1;
+              console.log("inline <script> block at offset " + m.index + ": <script" + m[1] + ">");
             }
-            console.log(i);
-          ' "$html" "$tmp" > "$tmp/count"
-          n=$(cat "$tmp/count")
-          if [ "$n" -eq 0 ]; then
-            echo "$html contains no inline script block - refusing to pass silently"
-            exit 1
-          fi
-          for f in "$tmp"/block*; do
-            node --check "$f"
-          done
-          echo "$n inline block(s) parse"
+            if (n > 0) {
+              console.log(process.argv[1] + " contains " + n + " inline script block(s); move the code to a .js file");
+              process.exit(1);
+            }
+          ' index.html
+          tmp=$(mktemp -d)
+          cp app-module.js "$tmp/app-module.mjs"
+          node --check app.js
+          node --check "$tmp/app-module.mjs"
+          echo "app.js and app-module.js parse; index.html has no inline script block"
 
       # go test does not run the node tests in tools/. "|| exit 1" fails the
       # step on the first failing test without relying on the shell's -e.
