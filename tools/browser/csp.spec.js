@@ -82,6 +82,14 @@ async function load(page) {
   // The xlsx bundle on the CDN is not needed for these checks; keep the run
   // offline-safe and fast.
   await page.route("https://cdn.jsdelivr.net/**", r => r.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  // Recorded in the page from the first script on, so a violation raised
+  // while the page loads is not missed.
+  await page.addInitScript(() => {
+    window.__cspViolations = [];
+    document.addEventListener("securitypolicyviolation", e => {
+      window.__cspViolations.push(e.violatedDirective + " " + (e.blockedURI || ""));
+    });
+  });
   const log = watch(page);
   const res = await page.goto(baseURL + "/");
   expect(res.headers()["content-security-policy"]).toContain("script-src-attr 'none'");
@@ -185,4 +193,39 @@ test("the sign-in button in a 401 card calls pubveraSignIn", async ({ page }) =>
   await page.locator("#nsf-results .errcard button", { hasText: "Sign in with Google" }).click();
   expect(await page.evaluate(() => window.__signInCalls)).toBe(1);
   expectNoCSPViolations(log);
+});
+
+// GRV-007 phase 2: the inline <script> blocks are now app.js and app-module.js,
+// and the policy carries script-src 'self' https://cdn.jsdelivr.net without
+// 'unsafe-inline'.
+
+test("the page loads under script-src with no CSP violation and no page error", async ({ page }) => {
+  const log = await load(page);
+  // A function from app.js and the auth stub app-module.js sets when
+  // /config.json is empty: both files ran, not just loaded.
+  expect(await page.evaluate(() => typeof window.openModal)).toBe("function");
+  expect(await page.evaluate(() => window.pubveraAuth && window.pubveraAuth.enabled)).toBe(false);
+  expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
+  expectNoCSPViolations(log);
+});
+
+test("an injected inline script does not run and raises a violation", async ({ page }) => {
+  await load(page);
+  await page.evaluate(() => {
+    const s = document.createElement("script");
+    s.textContent = "window.__pwned = 1";
+    document.body.appendChild(s);
+  });
+  await expect.poll(() => page.evaluate(() => window.__cspViolations.filter(v => v.startsWith("script-src")).length)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
+});
+
+test("app.js and app-module.js are loaded from the page origin", async ({ page }) => {
+  const scripts = [];
+  page.on("response", r => {
+    if (r.request().resourceType() === "script") scripts.push(r.url() + " " + r.status());
+  });
+  await load(page);
+  expect(scripts).toContain(baseURL + "/app.js 200");
+  expect(scripts).toContain(baseURL + "/app-module.js 200");
 });

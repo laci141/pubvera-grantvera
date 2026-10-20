@@ -57,10 +57,16 @@ func main() {
 // index.html has no inline event handler attributes any more: elements carry
 // data-action / data-input / data-keydown and delegated listeners dispatch
 // them, so script-src-attr 'none' blocks every onclick=-style attribute,
-// including one injected through markup. What is still NOT here is a
-// script-src directive: the two inline <script> blocks remain in index.html
-// (phase 2 moves them out), and any working script-src today would need
-// 'unsafe-inline', which permits exactly the injection a CSP exists to stop.
+// including one injected through markup.
+//
+// It has no inline <script> blocks either: their code is app.js and
+// app-module.js, served from this origin by handleRoot. That is what lets
+// script-src name its sources without 'unsafe-inline', so a <script> injected
+// through markup does not run. supabase-js and xlsx still load from
+// cdn.jsdelivr.net, each pinned with an SRI integrity hash. object-src and
+// base-uri close the two other ways of loading code (plugins, and a <base>
+// that re-points the relative script URLs). style-src and connect-src are not
+// set yet; they are later phases.
 //
 // frame-ancestors governs framing, not scripts, so it is unaffected by the
 // inline problem. X-Frame-Options repeats it for browsers that predate
@@ -75,9 +81,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		// Supabase. Send only the origin on those cross-origin requests, never
 		// the path or query.
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		// No inline event handler attributes may run, and (clickjacking) no
+		// Scripts only from this origin and the CDN, no inline script or
+		// event handler attribute, no plugins, no <base>, and (clickjacking) no
 		// site may frame this one.
-		h.Set("Content-Security-Policy", "script-src-attr 'none'; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", "script-src 'self' https://cdn.jsdelivr.net; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
 		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
@@ -171,6 +178,17 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(browserConfig{SupabaseURL: supaURL, SupabaseAnonKey: supaKey})
 	case "/":
 		http.ServeFile(w, r, "index.html")
+	case "/app.js", "/app-module.js":
+		// The page's own code, moved out of index.html so script-src needs no
+		// 'unsafe-inline'. Exact paths only: nothing else in the working
+		// directory, the Go source included, is reachable from here.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		http.ServeFile(w, r, strings.TrimPrefix(r.URL.Path, "/"))
 	default:
 		http.NotFound(w, r)
 	}

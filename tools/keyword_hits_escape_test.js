@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8").replace(/\r\n/g, "\n");
+const html = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8").replace(/\r\n/g, "\n");
 
 // Returns the source of `function name(...) { ... }`, matching braces while
 // skipping string literals and comments.
