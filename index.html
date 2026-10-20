@@ -518,25 +518,25 @@
     <h1>Grantvera</h1>
     <p>Search research grants and awards across NIH, NSF and Grants.gov — open data, keyless.</p>
     <div class="chips">
-      <button class="chip" onclick="openModal('open', 'climate')">Climate</button>
-      <button class="chip" onclick="openModal('nih', 'cancer')">Cancer</button>
-      <button class="chip" onclick="openModal('nsf', 'artificial intelligence')">AI</button>
+      <button class="chip" data-action="openModal" data-modal="open" data-prefill="climate">Climate</button>
+      <button class="chip" data-action="openModal" data-modal="nih" data-prefill="cancer">Cancer</button>
+      <button class="chip" data-action="openModal" data-modal="nsf" data-prefill="artificial intelligence">AI</button>
     </div>
   </section>
 
   <!-- BENTO CARDS -->
   <section class="bento-grid">
-    <div class="bento-card glass-panel open" onclick="openModal('open')">
+    <div class="bento-card glass-panel open" data-action="openModal" data-modal="open">
       <div class="bento-icon">💼</div>
       <div class="bento-label">Open Grants</div>
       <div class="bento-desc">Find grant opportunities that are open RIGHT NOW from federal agencies.</div>
     </div>
-    <div class="bento-card glass-panel nih" onclick="openModal('nih')">
+    <div class="bento-card glass-panel nih" data-action="openModal" data-modal="nih">
       <div class="bento-icon">📊</div>
       <div class="bento-label">Awarded NIH Grants</div>
       <div class="bento-desc">What did NIH actually fund? Search past awards to see typical grant size for your topic.</div>
     </div>
-    <div class="bento-card glass-panel nsf" onclick="openModal('nsf')">
+    <div class="bento-card glass-panel nsf" data-action="openModal" data-modal="nsf">
       <div class="bento-icon">🔍</div>
       <div class="bento-label">Awarded NSF Grants</div>
       <div class="bento-desc">NSF benchmark: what did they fund before? Find similarly-sized awards to estimate your chance.</div>
@@ -561,11 +561,11 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>💼 Open Grants</h2>
-        <button class="close-btn" onclick="closeModal('open')">&times;</button>
+        <button class="close-btn" data-action="closeModal" data-modal="open">&times;</button>
       </div>
       <div class="form-group">
         <label for="open-query">Topic or keywords</label>
-        <input type="text" id="open-query" placeholder="e.g. climate resilience" onkeydown="if(event.key==='Enter')runOpen()">
+        <input type="text" id="open-query" placeholder="e.g. climate resilience" data-keydown="runOpen">
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -590,10 +590,10 @@
         <div class="form-group">
           <label>Rows: <span class="limit-val" id="open-rows-val">15</span></label>
           <input type="range" id="open-rows" min="3" max="50" value="15"
-                 oninput="document.getElementById('open-rows-val').textContent=this.value">
+                 data-input="showValue" data-target="open-rows-val">
         </div>
       </div>
-      <button class="btn" id="open-btn" onclick="runOpen()">Search Open Grants</button>
+      <button class="btn" id="open-btn" data-action="runOpen">Search Open Grants</button>
       <div class="results" id="open-results"></div>
     </div>
   </div>
@@ -603,17 +603,17 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>📊 Awarded NIH Grants</h2>
-        <button class="close-btn" onclick="closeModal('nih')">&times;</button>
+        <button class="close-btn" data-action="closeModal" data-modal="nih">&times;</button>
       </div>
       <div class="form-group">
         <label for="nih-query">Topic or keywords</label>
-        <input type="text" id="nih-query" placeholder="e.g. cancer immunotherapy" onkeydown="if(event.key==='Enter')runNIH()">
+        <input type="text" id="nih-query" placeholder="e.g. cancer immunotherapy" data-keydown="runNIH">
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>Min amount: <span class="limit-val" id="nih-min-val">$0</span></label>
           <input type="range" id="nih-min" min="0" max="10000000" step="100000" value="0"
-                 oninput="document.getElementById('nih-min-val').textContent=formatMoney(+this.value)">
+                 data-input="showMoney" data-target="nih-min-val">
         </div>
         <div class="form-group">
           <label for="nih-year">Fiscal year</label>
@@ -625,10 +625,10 @@
         <div class="form-group">
           <label>Rows: <span class="limit-val" id="nih-rows-val">15</span></label>
           <input type="range" id="nih-rows" min="3" max="50" value="15"
-                 oninput="document.getElementById('nih-rows-val').textContent=this.value">
+                 data-input="showValue" data-target="nih-rows-val">
         </div>
       </div>
-      <button class="btn" id="nih-btn" onclick="runNIH()">Search NIH Awards</button>
+      <button class="btn" id="nih-btn" data-action="runNIH">Search NIH Awards</button>
       <div class="results" id="nih-results"></div>
     </div>
   </div>
@@ -638,25 +638,25 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>🔍 Awarded NSF Grants</h2>
-        <button class="close-btn" onclick="closeModal('nsf')">&times;</button>
+        <button class="close-btn" data-action="closeModal" data-modal="nsf">&times;</button>
       </div>
       <div class="form-group">
         <label for="nsf-query">Topic or keywords</label>
-        <input type="text" id="nsf-query" placeholder="e.g. quantum computing" onkeydown="if(event.key==='Enter')runNSF()">
+        <input type="text" id="nsf-query" placeholder="e.g. quantum computing" data-keydown="runNSF">
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>Min amount: <span class="limit-val" id="nsf-min-val">$0</span></label>
           <input type="range" id="nsf-min" min="0" max="10000000" step="100000" value="0"
-                 oninput="document.getElementById('nsf-min-val').textContent=formatMoney(+this.value)">
+                 data-input="showMoney" data-target="nsf-min-val">
         </div>
         <div class="form-group">
           <label>Rows: <span class="limit-val" id="nsf-rows-val">15</span></label>
           <input type="range" id="nsf-rows" min="3" max="50" value="15"
-                 oninput="document.getElementById('nsf-rows-val').textContent=this.value">
+                 data-input="showValue" data-target="nsf-rows-val">
         </div>
       </div>
-      <button class="btn" id="nsf-btn" onclick="runNSF()">Search NSF Awards</button>
+      <button class="btn" id="nsf-btn" data-action="runNSF">Search NSF Awards</button>
       <div class="results" id="nsf-results"></div>
     </div>
   </div>
@@ -1292,12 +1292,12 @@
         '<span class="qcount" id="' + key + '_qc"></span></span>' +
         '<span class="dl-group">' +
         '<input class="qfilter" type="text" placeholder="🔍 Filter results…" ' +
-          'oninput="onFilter(\'' + key + '\',this.value)">' +
+          'data-input="onFilter" data-key="' + esc(key) + '">' +
         '<button class="dl" title="BibTeX citation for these awards (@misc)" ' +
-          'onclick="downloadBibTeX(\'' + key + '\',\'' + bibName + '\')">⬇ BibTeX</button>' +
-        '<button class="dl" onclick="downloadXLSX(\'' + key + '\',\'' + xlsxName + '\')">⬇ Excel</button>' +
-        '<button class="dl" onclick="downloadCSV(\'' + key + '\',\'' + csvName + '\')">⬇ CSV</button>' +
-        '<button class="dl" onclick="downloadJSON(\'' + key + '\',\'' + filename + '\')">⬇ JSON</button>' +
+          'data-action="downloadBibTeX" data-key="' + esc(key) + '" data-filename="' + esc(bibName) + '">⬇ BibTeX</button>' +
+        '<button class="dl" data-action="downloadXLSX" data-key="' + esc(key) + '" data-filename="' + esc(xlsxName) + '">⬇ Excel</button>' +
+        '<button class="dl" data-action="downloadCSV" data-key="' + esc(key) + '" data-filename="' + esc(csvName) + '">⬇ CSV</button>' +
+        '<button class="dl" data-action="downloadJSON" data-key="' + esc(key) + '" data-filename="' + esc(filename) + '">⬇ JSON</button>' +
         '</span></div>';
     }
 
@@ -1506,6 +1506,48 @@
       if (e.key === 'Escape') MODALS.forEach(closeModal);
     });
 
+    // --- delegated event handlers -------------------------------------------
+    // The CSP sends script-src-attr 'none', so inline event handler attributes
+    // (onclick and friends) never run. Elements name an action in data-action /
+    // data-input / data-keydown and one listener per event type looks it up in
+    // these maps. Only names listed here can be called: a name coming from the
+    // DOM is never resolved through window, so injected markup cannot reach an
+    // arbitrary global.
+    const CLICK_ACTIONS = {
+      openModal:      el => openModal(el.dataset.modal, el.dataset.prefill),
+      closeModal:     el => closeModal(el.dataset.modal),
+      runOpen:        () => runOpen(),
+      runNIH:         () => runNIH(),
+      runNSF:         () => runNSF(),
+      downloadBibTeX: el => downloadBibTeX(el.dataset.key, el.dataset.filename),
+      downloadXLSX:   el => downloadXLSX(el.dataset.key, el.dataset.filename),
+      downloadCSV:    el => downloadCSV(el.dataset.key, el.dataset.filename),
+      downloadJSON:   el => downloadJSON(el.dataset.key, el.dataset.filename),
+      pubveraSignIn:  () => pubveraSignIn()
+    };
+    const INPUT_ACTIONS = {
+      showValue: el => { document.getElementById(el.dataset.target).textContent = el.value; },
+      showMoney: el => { document.getElementById(el.dataset.target).textContent = formatMoney(+el.value); },
+      onFilter:  el => onFilter(el.dataset.key, el.value)
+    };
+    // Enter in a query field runs that module's search.
+    const ENTER_ACTIONS = {
+      runOpen: () => runOpen(),
+      runNIH:  () => runNIH(),
+      runNSF:  () => runNSF()
+    };
+    function delegate(attr, actions, e) {
+      const el = e.target.closest ? e.target.closest('[' + attr + ']') : null;
+      if (!el) return;
+      const name = el.getAttribute(attr);
+      if (Object.prototype.hasOwnProperty.call(actions, name)) actions[name](el, e);
+    }
+    document.addEventListener('click', e => delegate('data-action', CLICK_ACTIONS, e));
+    document.addEventListener('input', e => delegate('data-input', INPUT_ACTIONS, e));
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') delegate('data-keydown', ENTER_ACTIONS, e);
+    });
+
     // Fiscal-year choices are generated from today's date rather than
     // hardcoded: a fixed 2020-2024 list had fallen two years behind while
     // RePORTER already returned FY2025 and FY2026 awards, and the typical-award
@@ -1580,7 +1622,8 @@
     }
 
     // Bridge to the module script at the end of this file: the sign-in button
-    // inside a 401 error card is inline HTML, so it needs a global to call.
+    // inside a 401 error card is built as an HTML string, so it reaches this
+    // through the delegated click listener (data-action="pubveraSignIn").
     function pubveraSignIn() {
       if (window.pubveraAuth) window.pubveraAuth.signIn();
     }
@@ -1609,7 +1652,7 @@
         // The raw error ("missing/invalid token") tells the user nothing they can
         // act on, and the remedy is always the same, so it is not shown.
         const btn = (window.pubveraAuth && window.pubveraAuth.enabled)
-          ? '<button type="button" class="btn" onclick="pubveraSignIn()">Sign in with Google</button>'
+          ? '<button type="button" class="btn" data-action="pubveraSignIn">Sign in with Google</button>'
           : '';
         return '<div class="errcard"><h4>Sign-in required</h4>' +
           '<p>Please sign in to run this search.</p>' + btn + '</div>';

@@ -54,18 +54,17 @@ func main() {
 // handleRoot and writeRaw both write bodies, so there is no safe place to add
 // these afterwards.
 //
-// What is deliberately NOT here is a full Content-Security-Policy with a
-// script-src directive. index.html uses inline <script> blocks and onclick=
-// attributes, so any working policy would need 'unsafe-inline', which permits
-// exactly the injection a CSP exists to stop. A real policy becomes possible
-// once the inline JavaScript moves into its own file; until then a policy that
-// looks protective without being so is worse than none, because it invites the
-// reader to stop worrying.
+// index.html has no inline event handler attributes any more: elements carry
+// data-action / data-input / data-keydown and delegated listeners dispatch
+// them, so script-src-attr 'none' blocks every onclick=-style attribute,
+// including one injected through markup. What is still NOT here is a
+// script-src directive: the two inline <script> blocks remain in index.html
+// (phase 2 moves them out), and any working script-src today would need
+// 'unsafe-inline', which permits exactly the injection a CSP exists to stop.
 //
-// frame-ancestors is the exception: it governs framing, not scripts, so it is
-// unaffected by the inline problem and works today. X-Frame-Options repeats it
-// for browsers that predate frame-ancestors; where both are understood,
-// frame-ancestors wins.
+// frame-ancestors governs framing, not scripts, so it is unaffected by the
+// inline problem. X-Frame-Options repeats it for browsers that predate
+// frame-ancestors; where both are understood, frame-ancestors wins.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -76,8 +75,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		// Supabase. Send only the origin on those cross-origin requests, never
 		// the path or query.
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		// Clickjacking: no site may frame this one.
-		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		// No inline event handler attributes may run, and (clickjacking) no
+		// site may frame this one.
+		h.Set("Content-Security-Policy", "script-src-attr 'none'; frame-ancestors 'none'")
 		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
