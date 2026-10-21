@@ -229,3 +229,50 @@ test("app.js and app-module.js are loaded from the page origin", async ({ page }
   expect(scripts).toContain(baseURL + "/app.js 200");
   expect(scripts).toContain(baseURL + "/app-module.js 200");
 });
+
+// GRV-007 phase 2d: a per-response nonce in script-src, for Cloudflare's
+// injected JS-detections script. Our own markup carries none.
+
+test("a script with the header's nonce runs, a plain inline script does not", async ({ page }) => {
+  await page.route("https://cdn.jsdelivr.net/**", r => r.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  await page.addInitScript(() => {
+    window.__cspViolations = [];
+    document.addEventListener("securitypolicyviolation", e => {
+      window.__cspViolations.push({ directive: e.violatedDirective, line: e.lineNumber });
+    });
+  });
+  let nonce = "";
+  let plainLine = 0;
+  await page.route(baseURL + "/", async route => {
+    const res = await route.fetch();
+    const m = /'nonce-([^']+)'/.exec(res.headers()["content-security-policy"] || "");
+    nonce = m ? m[1] : "";
+    // Each injected script sits on its own line, so a violation's line number
+    // says which of the two it was (the CSP has no report-sample).
+    const body = (await res.text()).replace("</body>",
+      '\n<script nonce="' + nonce + '">window.__nonced=1</script>\n<script>window.__plain=1</script>\n</body>');
+    plainLine = body.split("\n").findIndex(l => l.includes("window.__plain")) + 1;
+    const headers = { ...res.headers() };
+    delete headers["content-length"];
+    delete headers["content-encoding"];
+    await route.fulfill({ status: res.status(), headers, body });
+  });
+  await page.goto(baseURL + "/");
+  expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}$/);
+  expect(await page.evaluate(() => window.__nonced)).toBe(1);
+  expect(await page.evaluate(() => window.__plain)).toBeUndefined();
+  const v = await page.evaluate(() => window.__cspViolations);
+  // Exactly one violation, and it is the plain script's line.
+  expect(v).toHaveLength(1);
+  expect(v[0].directive).toMatch(/^script-src/);
+  expect(plainLine).toBeGreaterThan(0);
+  expect(v[0].line).toBe(plainLine);
+});
+
+test("the nonce is not readable from the DOM", async ({ page }) => {
+  await load(page);
+  expect(await page.evaluate(() => document.querySelectorAll("[nonce]").length)).toBe(0);
+  const nonces = await page.evaluate(() => Array.from(document.scripts, s => s.nonce));
+  expect(nonces.length).toBeGreaterThan(0);
+  expect(nonces.every(n => n === "")).toBe(true);
+});

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,14 +67,29 @@ func main() {
 // through markup does not run. supabase-js and xlsx still load from
 // cdn.jsdelivr.net, each pinned with an SRI integrity hash. object-src and
 // base-uri close the two other ways of loading code (plugins, and a <base>
-// that re-points the relative script URLs). style-src and connect-src are not
-// set yet; they are later phases.
+// that re-points the relative script URLs).
+//
+// script-src also carries a nonce, fresh for every response. It exists only so
+// that the script Cloudflare injects for JavaScript detections (Bot Fight
+// Mode) can run: Cloudflare copies the nonce from this header onto the scripts
+// it adds. Our own markup contains no nonce and the handlers never see it. It
+// is sent in the header only, never in a <meta> tag, which Cloudflare does not
+// read. If no random bytes are available the request fails with 500 rather
+// than going out with a weaker policy. style-src and connect-src are not set
+// yet; they are later phases.
 //
 // frame-ancestors governs framing, not scripts, so it is unaffected by the
 // inline problem. X-Frame-Options repeats it for browsers that predate
 // frame-ancestors; where both are understood, frame-ancestors wins.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var nb [16]byte
+		if _, err := rand.Read(nb[:]); err != nil {
+			log.Printf("csp nonce: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		nonce := base64.RawStdEncoding.EncodeToString(nb[:])
 		h := w.Header()
 		// The CLI output is served as application/json. Without nosniff a
 		// browser may disregard that and interpret a response as HTML.
@@ -84,7 +101,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		// Scripts only from this origin and the CDN, no inline script or
 		// event handler attribute, no plugins, no <base>, and (clickjacking) no
 		// site may frame this one.
-		h.Set("Content-Security-Policy", "script-src 'self' https://cdn.jsdelivr.net; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", "script-src 'self' https://cdn.jsdelivr.net 'nonce-"+nonce+"'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
 		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
@@ -177,6 +194,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(browserConfig{SupabaseURL: supaURL, SupabaseAnonKey: supaKey})
 	case "/":
+		// The page must never be cached: a cached copy would replay one
+		// nonce to every visitor. Set before ServeFile so Last-Modified and
+		// If-Modified-Since handling is untouched.
+		w.Header().Set("Cache-Control", "no-store")
 		http.ServeFile(w, r, "index.html")
 	case "/app.js", "/app-module.js":
 		// The page's own code, moved out of index.html so script-src needs no
@@ -188,6 +209,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		// Revalidated on every use (a 304 is cheap), so the page and its
+		// scripts cannot come from different deploys.
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, strings.TrimPrefix(r.URL.Path, "/"))
 	default:
 		http.NotFound(w, r)

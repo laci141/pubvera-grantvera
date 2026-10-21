@@ -78,3 +78,20 @@ if (bad) {
   process.exit(1);
 }
 console.log("PASS  every <script> tag in index.html (" + tags + ") has a src attribute and no body");
+
+// The CSP nonce lives only in the response header (main.go). A nonce in our own
+// markup or code would either be dead or leak it to script that can read the DOM.
+let nonceHits = 0;
+for (const [name, text] of Object.entries(sources)) {
+  text.split("\n").forEach((line, i) => {
+    if (/nonce=/i.test(line) || /\.nonce\b/.test(line)) {
+      nonceHits++;
+      console.log("FAIL  " + name + ":" + (i + 1) + " nonce reference: " + line.trim());
+    }
+  });
+}
+if (nonceHits) {
+  console.log("\n" + nonceHits + " nonce reference(s) found");
+  process.exit(1);
+}
+console.log("PASS  index.html, app.js and app-module.js contain no nonce= and no .nonce");
