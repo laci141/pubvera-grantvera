@@ -350,8 +350,9 @@
 
     // --- CSV (RFC4180). Excel-safe: BOM + CRLF + explicit separator hint. ----
     // One CSV cell. A text value that a spreadsheet would run as a formula
-    // (leading = + - @ TAB CR LF, or the full-width ＝ ＋ － ＠ that Excel also
-    // accepts) gets a leading ' so it is shown as text (CSV formula injection).
+    // (leading = + - @ or the full-width U+FF1D U+FF0B U+FF0D U+FF20 that Excel also
+    // accepts, even after leading spaces/TAB/CR/LF; or a leading TAB CR LF) gets a
+    // leading ' so it is shown as text (CSV formula injection).
     // A JS number, or a string that is a plain number such as "-5" or "-1.5",
     // is NOT prefixed: amounts must stay numeric so Excel can SUM and sort them.
     function csvCell(v) {
@@ -360,7 +361,7 @@
       if (v === null || v === undefined || v === false) return "";
       if (v === true) return "Yes";
       let s = (typeof v === "object") ? JSON.stringify(v) : String(v);
-      if (typeof v === "string" && /^[=+\-@\t\r\n＝＋－＠]/.test(s) &&
+      if (typeof v === "string" && /^[ \t\r\n]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]|^[\t\r\n]/.test(s) &&
           !/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) s = "'" + s;
       if (/[",\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
       return s;

@@ -73,7 +73,7 @@ function parseCSV(text) {
 
 const cases = [
   ["=1+1", true], ["+SUM(1,1)", true], ["-1+2", true], ["@SUM(A1:A2)", true],
-  ["\t=1", true], ["\r=1", true], ["\n=1", true], ["＝1+1", true], ["＋1", true], ["－1", true], ["＠x", true],
+  ["\t=1", true], ["\r=1", true], ["\n=1", true], ["\uFF1D1+1", true], ["\uFF0B1", true], ["\uFF0D1", true], ["\uFF20x", true],
   ['=HYPERLINK("x","y"),z', true],
   ["-5", false], ["-1.5", false], [-5, false], ["Cancer research", false],
 ];
@@ -89,5 +89,24 @@ cases.forEach(([v, formula], i) => {
   const want = formula ? "'" + v : String(v);
   check(JSON.stringify(v) + " -> " + JSON.stringify(want) + " (got " + JSON.stringify(got) + ")", got === want);
 });
+// Leading blanks before a starter are guarded too; full-width starters are
+// written as escapes here so no raw full-width character sits in the source.
+const cases2 = [
+  [" =1+1", true], ["   =1+1", true], [" \t=1+1", true], [" \uFF1D1+1", true], ["\n\uFF1D1+1", true],
+  ["\uFF1D1+1", true], ["\uFF0B1+1", true], ["\uFF0D1+1", true], ["\uFF20SUM(A1)", true],
+  ["a\uFF1Db", false], [" plain", false], ["-5", false], ["+5", false], ["-1.5", false], [".5", false],
+  ["  \n\uFF1D1+1", true], ["\nfoo", true],
+];
+const row2 = {};
+cases2.forEach(([v], i) => { row2["c" + i] = v; });
+ctx.rows = [row2];
+const data2 = parseCSV(ctx.toCSV("open").replace(/^\uFEFF/, ""))[3];
+check("second data row parses back to " + cases2.length + " fields (got " + (data2 ? data2.length : 0) + ")", data2 && data2.length === cases2.length);
+cases2.forEach(([v, formula], i) => {
+  const got = data2 ? data2[i] : undefined;
+  const want = formula ? "'" + v : String(v);
+  check(JSON.stringify(v) + " -> " + JSON.stringify(want) + " (got " + JSON.stringify(got) + ")", got === want);
+});
+
 console.log(failed ? "\n" + failed + " check(s) FAILED" : "\nall checks passed");
 process.exit(failed ? 1 : 0);
