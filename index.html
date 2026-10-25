@@ -348,7 +348,7 @@
 
     /* EXPORT TOOLBAR */
     .meta-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; gap: 12px; flex-wrap: wrap; }
-    .meta { font-size: 0.82rem; color: #99a; }
+    .meta { font-size: 0.82rem; color: #99a; min-width: 0; overflow-wrap: anywhere; }
     /* Measured at 380px: rows + match count + money is 617px and wraps to three
        lines. The match count is the part that must survive, so the money phrase
        is dropped by CSS — a media query rather than a width read in JS, so a
@@ -364,10 +364,29 @@
       transition: 0.2s; white-space: nowrap; flex-shrink: 0;
     }
     .dl:hover { background: rgba(255,255,255,0.15); border-color: var(--color, #00d4ff); color: #fff; }
-    .dl-group { display: flex; gap: 8px; flex-shrink: 0; align-items: center; flex-wrap: wrap; }
+    .dl-group { display: flex; gap: 8px; min-width: 0; max-width: 100%; align-items: center; flex-wrap: wrap; }
+    /* One Export menu (WAI-ARIA menu button) holds the four downloads. The panel
+       is one solid colour, the .modal-content surface under the toolbar at 0.90:
+       a gradient would leave background-color transparent. z-index 50 lifts it
+       over the insight box and the table that follow the toolbar. */
+    .dl-menu-wrap { position: relative; display: inline-block; margin-left: auto; }
+    .dl-trigger { min-height: 44px; min-width: 44px; }
+    .dl-trigger:focus-visible { outline: 2px solid var(--color, #00d4ff); outline-offset: 2px; }
+    .dl-menu {
+      position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 150px; max-width: calc(100vw - 32px);
+      padding: 6px; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; display: flex; flex-direction: column; gap: 2px;
+      background: rgba(22,32,26,.9); color: #e0e0e0; box-shadow: 0 14px 36px -12px rgba(0,0,0,0.8);
+    }
+    .dl-menu[hidden] { display: none; }
+    .dl-item {
+      display: block; width: 100%; min-height: 44px; text-align: left; font: inherit; font-size: 0.82rem; font-weight: 600;
+      color: #e0e0e0; background: none; border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; white-space: nowrap;
+    }
+    .dl-item:hover { background: rgba(255,255,255,0.14); }
+    .dl-item:focus-visible { outline: 2px solid var(--color, #00d4ff); outline-offset: -2px; background: rgba(255,255,255,0.14); }
     .qfilter {
       background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.16); border-radius: 999px;
-      padding: 4px 14px; color: #e8eef7; font-size: 0.78rem; width: 190px;
+      padding: 4px 14px; color: #e8eef7; font-size: 0.78rem; width: 190px; min-width: 0; max-width: 100%;
     }
     .qfilter:focus { outline: none; border-color: var(--color, #00d4ff); }
     .qcount { color: #7dd3fc; font-size: 0.78rem; font-weight: 600; margin-left: 6px; }
@@ -476,7 +495,8 @@
       .disclaimer-wrap { padding: 0.5rem 1.25rem 1rem; }
       .disclaimer { padding: 1rem; }
       .modal-content { max-width: 100%; width: 100%; margin: 0 0.5rem; padding: 1.5rem; }
-      .qfilter { width: 100%; }
+      .dl-group { width: 100%; }
+      .qfilter { flex: 1 1 100%; width: auto; }
       .glass-panel, .modal-content, .chip {
         backdrop-filter: blur(11px);
         -webkit-backdrop-filter: blur(11px);

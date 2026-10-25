@@ -618,6 +618,9 @@
       const csvName  = String(filename).replace(/\.json$/i, ".csv");
       const xlsxName = String(filename).replace(/\.json$/i, ".xlsx");
       const bibName  = String(filename).replace(/\.json$/i, ".bib");
+      // Every toolbar gets its own panel id: aria-controls must name one element.
+      metaRow.menuSeq = (metaRow.menuSeq || 0) + 1;
+      const menuId = 'dl-menu-' + metaRow.menuSeq;
       // The separator lives with the label, not with the counter, so hiding the
       // label on a narrow viewport cannot leave a dangling em dash behind.
       return '<div class="meta-row"><span class="meta">' +
@@ -626,13 +629,85 @@
         '<span class="dl-group">' +
         '<input class="qfilter" type="text" placeholder="🔍 Filter results…" ' +
           'data-input="onFilter" data-key="' + esc(key) + '">' +
-        '<button class="dl" title="BibTeX citation for these awards (@misc)" ' +
-          'data-action="downloadBibTeX" data-key="' + esc(key) + '" data-filename="' + esc(bibName) + '">⬇ BibTeX</button>' +
-        '<button class="dl" data-action="downloadXLSX" data-key="' + esc(key) + '" data-filename="' + esc(xlsxName) + '">⬇ Excel</button>' +
-        '<button class="dl" data-action="downloadCSV" data-key="' + esc(key) + '" data-filename="' + esc(csvName) + '">⬇ CSV</button>' +
-        '<button class="dl" data-action="downloadJSON" data-key="' + esc(key) + '" data-filename="' + esc(filename) + '">⬇ JSON</button>' +
+        '<span class="dl-menu-wrap">' +
+        '<button type="button" class="dl dl-trigger" data-action="toggleExportMenu" aria-haspopup="menu" ' +
+          'aria-expanded="false" aria-controls="' + menuId + '">⬇ Export ▾</button>' +
+        '<span class="dl-menu" role="menu" id="' + menuId + '" hidden>' +
+        '<button type="button" class="dl-item" role="menuitem" data-action="downloadXLSX" data-key="' + esc(key) + '" data-filename="' + esc(xlsxName) + '">Excel</button>' +
+        '<button type="button" class="dl-item" role="menuitem" data-action="downloadCSV" data-key="' + esc(key) + '" data-filename="' + esc(csvName) + '">CSV</button>' +
+        '<button type="button" class="dl-item" role="menuitem" data-action="downloadJSON" data-key="' + esc(key) + '" data-filename="' + esc(filename) + '">JSON</button>' +
+        '<button type="button" class="dl-item" role="menuitem" title="BibTeX citation for these awards (@misc)" ' +
+          'data-action="downloadBibTeX" data-key="' + esc(key) + '" data-filename="' + esc(bibName) + '">BibTeX</button>' +
+        '</span></span>' +
         '</span></div>';
     }
+    // ── Export menu (WAI-ARIA APG menu button). Every close path ends in
+    // closeExportMenus(opener), so hidden, aria-expanded and focus cannot drift
+    // apart. The opener is passed explicitly: WebKit does not focus a button on
+    // mouse click. The trigger and the items run through CLICK_ACTIONS and
+    // delegate() like every other button; this block only opens, closes and
+    // moves focus. Escape in an open menu calls preventDefault, and the modal
+    // Escape listener skips a prevented Escape or one that arrives while a menu
+    // is still open, so the menu closes and the modal stays open whichever
+    // listener runs first.
+    function anyExportMenuOpen() {
+      return !!document.querySelector('.dl-menu:not([hidden])');
+    }
+    function closeExportMenus(opener) {
+      document.querySelectorAll('.dl-menu:not([hidden])').forEach(m => {
+        m.hidden = true;
+        const t = document.querySelector('[aria-controls="' + m.id + '"]');
+        if (t) t.setAttribute('aria-expanded', 'false');
+      });
+      if (opener) opener.focus();
+    }
+    function toggleExportMenu(btn) {
+      const menu = document.getElementById(btn.getAttribute('aria-controls'));
+      if (!menu) return;
+      const wasOpen = !menu.hidden;
+      closeExportMenus(null); // at most one menu open
+      if (wasOpen) { btn.focus(); return; }
+      menu.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      const first = menu.querySelector('.dl-item');
+      if (first) first.focus();
+    }
+    document.addEventListener('click', e => {
+      const t = e.target;
+      if (!t || !t.closest) return;
+      // The download itself runs in delegate(), registered later.
+      const item = t.closest('.dl-item');
+      if (item) {
+        closeExportMenus(document.querySelector('[aria-controls="' + item.closest('.dl-menu').id + '"]'));
+        return;
+      }
+      // Untrusted clicks are ignored: triggerDownload() clicks a synthetic <a>.
+      if (e.isTrusted && !t.closest('.dl-menu-wrap')) closeExportMenus(null);
+    });
+    document.addEventListener('keydown', e => {
+      const t = e.target;
+      if (!t || !t.matches) return;
+      // Enter, Space and ArrowDown on the trigger open the menu with the first
+      // item focused; preventDefault stops the button's own click for Enter and Space.
+      if (t.matches('.dl-trigger') && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        if (e.key !== 'ArrowDown' || t.getAttribute('aria-expanded') !== 'true') toggleExportMenu(t);
+        return;
+      }
+      const menu = document.querySelector('.dl-menu:not([hidden])');
+      if (!menu) return;
+      const opener = document.querySelector('[aria-controls="' + menu.id + '"]');
+      if (e.key === 'Escape') { e.preventDefault(); closeExportMenus(opener); return; }
+      if (!menu.contains(t)) return;
+      const items = Array.from(menu.querySelectorAll('.dl-item'));
+      const i = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+      else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+      else if (e.key === 'Tab') closeExportMenus(opener); // focus lands on the trigger, then Tab moves on
+    });
+    // ── end Export menu
 
     function renderResult(key, out, filename) {
       const rows = lastData[key] || [];
@@ -836,7 +911,8 @@
       });
     });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') MODALS.forEach(closeModal);
+      // An Escape that belongs to an open Export menu closes only the menu.
+      if (e.key === 'Escape' && !e.defaultPrevented && !anyExportMenuOpen()) MODALS.forEach(closeModal);
     });
 
     // --- delegated event handlers -------------------------------------------
@@ -856,6 +932,7 @@
       downloadXLSX:   el => downloadXLSX(el.dataset.key, el.dataset.filename),
       downloadCSV:    el => downloadCSV(el.dataset.key, el.dataset.filename),
       downloadJSON:   el => downloadJSON(el.dataset.key, el.dataset.filename),
+      toggleExportMenu: el => toggleExportMenu(el),
       pubveraSignIn:  () => pubveraSignIn()
     };
     const INPUT_ACTIONS = {
