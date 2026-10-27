@@ -24,8 +24,12 @@ RUN CGO_ENABLED=0 go install -trimpath \
 FROM golang:1.26-alpine AS web-builder
 WORKDIR /build
 COPY go.mod ./
-COPY main.go semaphore.go index.html app.js app-module.js ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/server .
+COPY main.go semaphore.go version.go index.html app.js app-module.js ./
+# The CalVer version from the release workflow; "dev" for any other build.
+# -X names the variable main.appVersion: for package main the linker uses
+# "main", not the module path.
+ARG APP_VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.appVersion=${APP_VERSION}" -o /out/server .
 # Copy index.html and its scripts to /out so they're available in runtime
 COPY index.html app.js app-module.js /out/
 
@@ -48,6 +52,10 @@ RUN chmod +x ./server ./grants-pp-cli
 # The upstream commit the CLI was built from, readable with docker inspect.
 ARG PP_LIBRARY_COMMIT
 LABEL org.pubvera.cli.commit=${PP_LIBRARY_COMMIT}
+
+# The CalVer version the server reports on /version.
+ARG APP_VERSION=dev
+LABEL org.opencontainers.image.version=${APP_VERSION}
 
 ENV CLI_BIN=/app/grants-pp-cli
 # Matches defaultPort in main.go. Declared here so the image itself carries the

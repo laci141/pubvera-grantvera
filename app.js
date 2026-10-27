@@ -1145,3 +1145,20 @@
         renderResult('nsf', out, 'grantvera-nsf-awards.json');
       } catch (err) { showError(out, err); }
     }
+
+    // --- build version --------------------------------------------------------
+    // The footer shows the CalVer version from GET /version (version.go). Only
+    // textContent is written, and a failed fetch leaves the footer without a
+    // version. Started from the listener so that evaluating this file (as
+    // tools/export_test.js does) touches no DOM and fetches nothing.
+    function loadAppVersion() {
+      fetch('/version', { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : Promise.reject()))
+        .then(d => {
+          if (d && typeof d.version === 'string' && d.version) {
+            document.getElementById('app-version').textContent = 'Grantvera v' + d.version;
+          }
+        })
+        .catch(() => { /* leave the footer without a version */ });
+    }
+    document.addEventListener('DOMContentLoaded', loadAppVersion);

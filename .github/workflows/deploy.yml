@@ -2,7 +2,8 @@ name: Build and Deploy Grantvera
 
 # Two jobs. "validate" runs every check on every trigger and holds read-only
 # permissions only. "publish" runs only after validate passed, only on refs/heads/main,
-# and is the only job that holds package write permission. Watchtower on the
+# and is the only job that holds package write permission (and contents: write,
+# for the CalVer git tag and GitHub Release it creates). Watchtower on the
 # server deploys whatever :latest points at, so :latest must only ever move
 # from main, and the job that can write it must not run any test code.
 on:
@@ -21,11 +22,21 @@ env:
   # Bump this deliberately and read the diff, rather than being bumped by it.
   GOVULNCHECK_VERSION: v1.8.0
 
+# One run per ref at a time, never cancelled: the version step counts the tags
+# already on origin, so two overlapping runs on main could otherwise both
+# compute the same N.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   validate:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
+    # The CalVer version for publish: its image tag, OCI label and release.
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       # The checkout no longer fetches Git LFS objects. The only LFS-tracked
       # file was the vendored CLI binary, which is gone: the Dockerfile builds
@@ -35,6 +46,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # CalVer YYYY.MM.DD.N: the UTC date plus 1 + the number of tags
+      # vYYYY.MM.DD.* already on origin. Every non-pull_request run on main is
+      # versioned (push and workflow_dispatch), so a manual run never publishes
+      # a "dev" image to :latest. Every other build uses "dev". It runs here,
+      # not in publish, because the label-check build below needs APP_VERSION
+      # too; the repository is public, so ls-remote needs no credentials.
+      - name: Compute version
+        id: version
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          D=$(date -u +%Y.%m.%d)
+          N=$(git ls-remote --tags origin "refs/tags/v$D.*" | wc -l)
+          VERSION="$D.$((N + 1))"
+          echo "version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -153,6 +181,10 @@ jobs:
           load: true
           push: false
           tags: grantvera-label-check:ci
+          # Same APP_VERSION as the push in publish, so that build reuses these
+          # layers from the gha cache and the checked image is the shipped one.
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version || 'dev' }}
           cache-from: type=gha
 
       - name: Check the CLI commit label
@@ -213,10 +245,25 @@ jobs:
     needs: validate
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-26.04
+    # contents: write is for the git tag and GitHub Release the last step makes.
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
+      # validate computes the version on every non-PR run on main. An empty or
+      # malformed one would ship an unversioned :latest, so stop before the
+      # build.
+      - name: Check version
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'; then
+            echo "validate produced no CalVer version: '${VERSION}'"
+            exit 1
+          fi
+          echo "version: $VERSION"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -240,7 +287,26 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+          build-args: |
+            APP_VERSION=${{ needs.validate.outputs.version }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # After the push, so a release never names an image that does not exist.
+      # The first release has no earlier tag to diff against, so it gets fixed
+      # notes instead of --generate-notes.
+      - name: Create GitHub release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh release list --limit 1 --json tagName --jq length)" = "0" ]; then
+            gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Grantvera $VERSION" --notes "Baseline release: first versioned build. Earlier history is in the merged pull requests."
+          else
+            gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Grantvera $VERSION" --generate-notes
+          fi
