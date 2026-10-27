@@ -28,6 +28,7 @@ func main() {
 	mux.HandleFunc("/api/nih", handleNIH)
 	mux.HandleFunc("/api/nsf", handleNSF)
 	mux.HandleFunc("/healthz", handleHealthz)
+	mux.HandleFunc("/version", handleVersion)
 	mux.HandleFunc("/", handleRoot)
 
 	srv := &http.Server{
