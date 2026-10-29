@@ -29,6 +29,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Default for every job: read-only. Only the publish job below writes.
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-26.04
