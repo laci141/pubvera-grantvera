@@ -156,6 +156,19 @@ for (const jb of jobs.filter((x) => x.name !== "publish")) {
   check("job " + jb.name + " has no contents: write", !block(jb, "permissions").includes("contents: write"));
 }
 check("validate keeps contents: read", block(validate, "permissions").includes("contents: read"));
+
+// The default for every job is read-only: a top-level "permissions:" block
+// holding exactly contents: read, before "jobs:".
+const topAt = lines.findIndex((l) => l === "permissions:");
+const topPerms = [];
+for (let j = topAt + 1; topAt >= 0 && j < lines.length; j++) {
+  const l = lines[j];
+  if (l.trim() === "" || l.trim().startsWith("#")) continue;
+  if (!/^ /.test(l)) break;
+  topPerms.push(l.trim());
+}
+check("top-level permissions is contents: read (found " + JSON.stringify(topPerms) + ")",
+  topAt >= 0 && topAt < jobsAt && JSON.stringify(topPerms) === JSON.stringify(["contents: read"]));
 check("contents: write appears exactly once in the workflow",
   lines.filter((l) => l.trim() === "contents: write").length === 1);
 
