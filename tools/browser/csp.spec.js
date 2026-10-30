@@ -144,8 +144,10 @@ test("Enter in the query input sends the search to /api/, filter and download wo
 
   // A download button (also built as an HTML string) calls downloadCSV with
   // its key and filename.
+  // The download buttons sit in an export menu: open it, then pick the CSV item.
+  await page.locator("#open-results button.dl-trigger").click();
   const dl = page.waitForEvent("download");
-  await page.locator("#open-results button.dl", { hasText: "CSV" }).click();
+  await page.locator("#open-results button.dl-item", { hasText: "CSV" }).click();
   expect((await dl).suggestedFilename()).toBe("grantvera-open-grants.csv");
   expectNoCSPViolations(log);
 });
