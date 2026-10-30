@@ -199,3 +199,84 @@ func TestScriptsAreRevalidated(t *testing.T) {
 		}
 	}
 }
+
+// GRV-007 style-src phase 1: the <style> block and the style= attributes moved
+// to style.css, served like the scripts. A missing route would leave the page
+// unstyled once style-src 'self' is enforced.
+func TestHandleRootServesStyle(t *testing.T) {
+	want, err := os.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	securityHeaders(http.HandlerFunc(handleRoot)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/style.css", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /style.css status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/css; charset=utf-8" {
+		t.Errorf("GET /style.css Content-Type = %q, want %q", ct, "text/css; charset=utf-8")
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("GET /style.css Cache-Control = %q, want %q", got, "no-cache")
+	}
+	if !bytes.Equal(rec.Body.Bytes(), want) {
+		t.Errorf("GET /style.css body (%d bytes) differs from style.css on disk (%d bytes)", rec.Body.Len(), len(want))
+	}
+
+	rec = httptest.NewRecorder()
+	handleRoot(rec, httptest.NewRequest(http.MethodPost, "/style.css", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /style.css status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+// style-src 'self' is reported, not enforced, on the page: the Report-Only
+// policy is the enforcing one, same nonce, plus style-src 'self'. The
+// enforcing policy itself is unchanged and still has no style-src.
+func TestCSPReportOnlyAddsStyleSrc(t *testing.T) {
+	rec := httptest.NewRecorder()
+	securityHeaders(http.HandlerFunc(handleRoot)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !cspNonceRE.MatchString(csp) {
+		t.Errorf("Content-Security-Policy = %q, does not match the unchanged enforcing policy", csp)
+	}
+	if strings.Contains(csp, "style-src") {
+		t.Errorf("Content-Security-Policy = %q, must not enforce style-src yet", csp)
+	}
+	ro := rec.Header().Get("Content-Security-Policy-Report-Only")
+	if want := csp + "; style-src 'self'"; ro != want {
+		t.Errorf("Content-Security-Policy-Report-Only = %q, want %q", ro, want)
+	}
+}
+
+// The image must ship every file the server serves: the web-builder COPY into
+// /out/ and one runtime COPY --from=web-builder per file. A file left out
+// builds fine and 404s in production.
+func TestDockerfileShipsServedFiles(t *testing.T) {
+	b, err := os.ReadFile("Dockerfile")
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	var out string
+	runtime := map[string]bool{}
+	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		f := strings.Fields(l)
+		if len(f) > 2 && f[0] == "COPY" && f[len(f)-1] == "/out/" {
+			out = l
+		}
+		if len(f) == 4 && f[0] == "COPY" && f[1] == "--from=web-builder" && strings.HasPrefix(f[2], "/out/") {
+			runtime[strings.TrimPrefix(f[2], "/out/")+" "+f[3]] = true
+		}
+	}
+	if out == "" {
+		t.Fatal("Dockerfile has no COPY ... /out/ line")
+	}
+	for _, name := range []string{"index.html", "app.js", "app-module.js", "style.css"} {
+		if !strings.Contains(" "+out+" ", " "+name+" ") {
+			t.Errorf("Dockerfile line %q does not copy %s to /out/", out, name)
+		}
+		if !runtime[name+" ./"+name] {
+			t.Errorf("Dockerfile has no COPY --from=web-builder /out/%s ./%s", name, name)
+		}
+	}
+}

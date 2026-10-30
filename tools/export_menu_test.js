@@ -101,10 +101,10 @@ for (let i = src.indexOf("document.addEventListener('keydown'"); i >= 0;
 }
 if (modalKeys.length !== 1) refuse("exactly one document keydown listener that calls closeModal (" + modalKeys.length + " found)");
 const modalEsc = modalKeys[0];
-const styleStart = html.indexOf("<style>");
-const styleEnd = html.indexOf("</style>");
-if (styleStart < 0 || styleEnd < styleStart) refuse("the <style> block");
-const style = html.slice(styleStart, styleEnd).replace(/\/\*[^]*?\*\//g, "");
+// The page CSS is style.css (index.html has no <style> block any more).
+const cssPath = path.join(__dirname, "..", "style.css");
+if (!fs.existsSync(cssPath)) refuse("style.css");
+const style = fs.readFileSync(cssPath, "utf8").replace(/\r\n/g, "\n").replace(/\/\*[^]*?\*\//g, "");
 
 // ── tiny DOM: enough for the selectors the toolbar and menu code use ──
 let currentDoc = null; // the document new elements belong to

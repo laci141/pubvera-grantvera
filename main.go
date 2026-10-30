@@ -102,7 +102,14 @@ func securityHeaders(next http.Handler) http.Handler {
 		// Scripts only from this origin and the CDN, no inline script or
 		// event handler attribute, no plugins, no <base>, and (clickjacking) no
 		// site may frame this one.
-		h.Set("Content-Security-Policy", "script-src 'self' https://cdn.jsdelivr.net 'nonce-"+nonce+"'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+		csp := "script-src 'self' https://cdn.jsdelivr.net 'nonce-" + nonce + "'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+		h.Set("Content-Security-Policy", csp)
+		// style-src phase 1: the page's CSS is style.css and it has no style=
+		// attribute, so style-src 'self' is reported (not enforced) on the
+		// page, with the same nonce, before it is enforced in a later phase.
+		if r.URL.Path == "/" {
+			h.Set("Content-Security-Policy-Report-Only", csp+"; style-src 'self'")
+		}
 		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
@@ -214,6 +221,17 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		// scripts cannot come from different deploys.
 		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, strings.TrimPrefix(r.URL.Path, "/"))
+	case "/style.css":
+		// The page's CSS, moved out of index.html's <style> block for
+		// style-src 'self'. Same rules as the scripts above.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, "style.css")
 	default:
 		http.NotFound(w, r)
 	}

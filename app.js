@@ -110,7 +110,13 @@
       const pct = Math.max(2, Math.round(amount / Math.max(1, max) * 100));
       const tier = pct >= 66 ? 'green' : pct >= 33 ? 'yellow' : 'red';
       return '<div class="bar-container"><span class="bar-number">' + formatMoney(amount) + '</span>' +
-             '<div class="bar-chart ' + tier + '" style="width:' + pct + '%"></div></div>';
+             '<div class="bar-chart ' + tier + '" data-pct="' + pct + '"></div></div>';
+    }
+    // The width is set through the CSSOM, not an inline style attribute, so
+    // the page needs no inline style under style-src 'self'. Call after every
+    // innerHTML that can contain moneyBar() output; sel names that element.
+    function applyBarWidths(sel) {
+      document.querySelectorAll(sel + ' .bar-chart[data-pct]').forEach(b => { b.style.width = b.dataset.pct + '%'; });
     }
 
     // --- data model ---------------------------------------------------------
@@ -860,6 +866,7 @@
       }
       h += '</tbody></table>';
       tw.innerHTML = h;
+      applyBarWidths('#' + key + '_tw');
     }
 
     function onFilter(key, value) {

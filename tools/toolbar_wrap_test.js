@@ -1,17 +1,16 @@
-// Toolbar wrap test (W1-W5): the result toolbar (.meta-row) wraps instead of
+// Toolbar wrap test (W1-W6): the result toolbar (.meta-row) wraps instead of
 // pushing the page sideways, and long text may break anywhere.
 //
 // Run: node tools/toolbar_wrap_test.js
 //
-// CSS-source check: index.html's <style> block is read as text, comments are
-// dropped and the @media blocks are split off by brace matching. This is NOT a
-// layout test: scrollWidth and the open-menu position at 343-1366 px are
+// CSS-source check: style.css (formerly index.html's <style> block) is read
+// as text, comments are dropped and the @media blocks are split off by brace
+// matching. This is NOT a layout test: scrollWidth and the open-menu position at 343-1366 px are
 // verified with the Playwright script.
 "use strict";
 const fs = require("fs");
 const path = require("path");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8").replace(/\r\n/g, "\n");
 
 let ran = 0;
 let failed = 0;
@@ -21,14 +20,14 @@ function check(label, ok) {
   console.log((ok ? "PASS" : "FAIL") + "  " + label);
 }
 function refuse(what) {
-  console.error("FAIL: " + what + " not found in index.html - refusing to pass silently");
+  console.error("FAIL: " + what + " not found - refusing to pass silently");
   process.exit(1);
 }
 
-const styleStart = html.indexOf("<style>");
-const styleEnd = html.indexOf("</style>");
-if (styleStart < 0 || styleEnd < styleStart) refuse("the <style> block");
-const style = html.slice(styleStart + "<style>".length, styleEnd).replace(/\/\*[^]*?\*\//g, "");
+// The page CSS is style.css (index.html has no <style> block any more).
+const cssPath = path.join(__dirname, "..", "style.css");
+if (!fs.existsSync(cssPath)) refuse("style.css");
+const style = fs.readFileSync(cssPath, "utf8").replace(/\r\n/g, "\n").replace(/\/\*[^]*?\*\//g, "");
 
 // Bodies of every @media block whose head matches headRe (brace-matched), plus
 // the CSS left without them.
@@ -91,6 +90,14 @@ check("W5 .qfilter has min-width:0 and max-width:100%; @media (max-width: 768px)
   "the filter a full row (qfilter \"" + qf + "\", mobile group \"" + mobileGroup + "\", mobile qfilter \"" + mobileQf + "\")",
   has(qf, "min-width:0") && has(qf, "max-width:100%") && has(mobileGroup, "width:100%") &&
   (has(mobileQf, "flex:11100%") || has(mobileQf, "flex-basis:100%")) && has(mobileQf, "width:auto"));
+
+// style-src 'self' without 'unsafe-inline': no <style> element and no style=
+// attribute, in the page or in markup the scripts build.
+const read = f => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+const styleAttrs = ["index.html", "app.js", "app-module.js"].map(f => f + " " + (read(f).match(/\sstyle\s*=\s*["'\\]/gi) || []).length);
+const styleEls = (read("index.html").match(/<style[\s>]/gi) || []).length;
+check("W6 no inline style: 0 style= attributes (" + styleAttrs.join(", ") + ") and 0 <style> elements in index.html (" + styleEls + ")",
+  styleAttrs.every(s => s.endsWith(" 0")) && styleEls === 0);
 
 if (ran === 0) {
   console.error("FAIL: zero checks ran - refusing to pass silently");
