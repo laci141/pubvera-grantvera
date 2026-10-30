@@ -24,14 +24,14 @@ RUN CGO_ENABLED=0 go install -trimpath \
 FROM golang:1.26-alpine AS web-builder
 WORKDIR /build
 COPY go.mod ./
-COPY main.go semaphore.go version.go index.html app.js app-module.js ./
+COPY main.go semaphore.go version.go index.html app.js app-module.js style.css ./
 # The CalVer version from the release workflow; "dev" for any other build.
 # -X names the variable main.appVersion: for package main the linker uses
 # "main", not the module path.
 ARG APP_VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.appVersion=${APP_VERSION}" -o /out/server .
-# Copy index.html and its scripts to /out so they're available in runtime
-COPY index.html app.js app-module.js /out/
+# Copy index.html, its scripts and style.css to /out so they're available in runtime
+COPY index.html app.js app-module.js style.css /out/
 
 # ---- Stage 3: minimal runtime ----
 # Pinned to a specific minor so two builds on different days share the same
@@ -46,6 +46,7 @@ COPY --from=web-builder /out/server ./server
 COPY --from=web-builder /out/index.html ./index.html
 COPY --from=web-builder /out/app.js ./app.js
 COPY --from=web-builder /out/app-module.js ./app-module.js
+COPY --from=web-builder /out/style.css ./style.css
 COPY --from=cli-builder /go/bin/grants-pp-cli ./grants-pp-cli
 RUN chmod +x ./server ./grants-pp-cli
 

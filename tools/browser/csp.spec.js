@@ -240,7 +240,7 @@ test("a script with the header's nonce runs, a plain inline script does not", as
   await page.addInitScript(() => {
     window.__cspViolations = [];
     document.addEventListener("securitypolicyviolation", e => {
-      window.__cspViolations.push({ directive: e.violatedDirective, line: e.lineNumber });
+      window.__cspViolations.push({ directive: e.violatedDirective, line: e.lineNumber, disposition: e.disposition });
     });
   });
   let nonce = "";
@@ -264,11 +264,14 @@ test("a script with the header's nonce runs, a plain inline script does not", as
   expect(await page.evaluate(() => window.__nonced)).toBe(1);
   expect(await page.evaluate(() => window.__plain)).toBeUndefined();
   const v = await page.evaluate(() => window.__cspViolations);
-  // Exactly one violation, and it is the plain script's line.
-  expect(v).toHaveLength(1);
-  expect(v[0].directive).toMatch(/^script-src/);
+  // Exactly one violation per policy, both on the plain script's line: the
+  // enforcing one and the Report-Only one, which repeats script-src.
+  expect(v.map(x => x.disposition).sort()).toEqual(["enforce", "report"]);
   expect(plainLine).toBeGreaterThan(0);
-  expect(v[0].line).toBe(plainLine);
+  for (const x of v) {
+    expect(x.directive).toMatch(/^script-src/);
+    expect(x.line).toBe(plainLine);
+  }
 });
 
 test("the nonce is not readable from the DOM", async ({ page }) => {
@@ -277,4 +280,71 @@ test("the nonce is not readable from the DOM", async ({ page }) => {
   const nonces = await page.evaluate(() => Array.from(document.scripts, s => s.nonce));
   expect(nonces.length).toBeGreaterThan(0);
   expect(nonces.every(n => n === "")).toBe(true);
+});
+
+// GRV-007 style-src phase 1: the CSS is style.css and the page has no style=
+// attribute, so style-src 'self' is sent as Report-Only. A report-only
+// violation also reaches the console ("[Report Only] ... Content Security
+// Policy") and fires securitypolicyviolation, so both are checked.
+
+const NIH_FIXTURE = {
+  total: 2,
+  projects: [
+    { project_num: "R01-1", project_title: "Tumour biology", contact_pi_name: "A, B", organization: { org_name: "U1" }, award_amount: 1000000, fiscal_year: 2026 },
+    { project_num: "R01-2", project_title: "Tumour biology", contact_pi_name: "C, D", organization: { org_name: "U2" }, award_amount: 250000, fiscal_year: 2026 },
+  ],
+};
+
+test("style.css is loaded and style-src 'self' is reported without a violation", async ({ page }) => {
+  const sheets = [];
+  page.on("response", r => {
+    if (r.request().resourceType() === "stylesheet") sheets.push(r.url() + " " + r.status());
+  });
+  let ro = "", csp = "";
+  page.on("response", r => {
+    if (r.url() === baseURL + "/") {
+      csp = r.headers()["content-security-policy"] || "";
+      ro = r.headers()["content-security-policy-report-only"] || "";
+    }
+  });
+  const log = await load(page);
+  expect(sheets).toContain(baseURL + "/style.css 200");
+  expect(csp).toContain("script-src-attr 'none'");
+  expect(ro).toBe(csp + "; style-src 'self'");
+  expect(await page.evaluate(() => document.querySelectorAll("[style]").length)).toBe(0);
+  expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
+  expectNoCSPViolations(log);
+});
+
+test("each modal gets its colour from style.css", async ({ page }) => {
+  const log = await load(page);
+  const colours = await page.evaluate(() => ["open", "nih", "nsf"].map(k => {
+    const m = document.getElementById("modal-" + k);
+    return getComputedStyle(m).getPropertyValue("--color").trim() + " " + getComputedStyle(m.querySelector(".modal-header h2")).color;
+  }));
+  expect(colours).toEqual([
+    "#00d4ff rgb(0, 212, 255)",
+    "#7c3aed rgb(124, 58, 237)",
+    "#22c55e rgb(34, 197, 94)",
+  ]);
+  expectNoCSPViolations(log);
+});
+
+test("money bars get their width through the CSSOM", async ({ page }) => {
+  const log = await load(page);
+  await page.route("**/api/nih", r => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(NIH_FIXTURE) }));
+  await page.locator(".chip", { hasText: "Cancer" }).click();
+  await page.locator("#nih-btn").click();
+  await expect(page.locator("#nih_tw .bar-chart")).toHaveCount(2);
+  const bars = () => page.evaluate(() => Array.from(document.querySelectorAll("#nih_tw .bar-chart"), b =>
+    b.dataset.pct + " " + b.style.width + " " + (parseFloat(getComputedStyle(b).width) > 0)));
+  // Unsorted, so in fixture order: 100 % and 25 % of the largest award.
+  expect(await bars()).toEqual(["100 100% true", "25 25% true"]);
+  // A re-render (the result filter) sets the width again; the maximum is now
+  // the one remaining row.
+  await page.locator("#nih-results .qfilter").fill("R01-2");
+  await expect(page.locator("#nih_tw .bar-chart")).toHaveCount(1);
+  expect(await bars()).toEqual(["100 100% true"]);
+  expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
+  expectNoCSPViolations(log);
 });
