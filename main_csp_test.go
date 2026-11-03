@@ -119,7 +119,7 @@ func TestHandleRootDoesNotServeOtherFiles(t *testing.T) {
 // cspNonceRE is the whole policy, so any change to another directive fails it
 // too. The nonce exists only so Cloudflare's injected JS-detections script can
 // run; the page's own markup never carries it.
-var cspNonceRE = regexp.MustCompile(`^script-src 'self' https://cdn\.jsdelivr\.net 'nonce-([A-Za-z0-9+/]{22})'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'$`)
+var cspNonceRE = regexp.MustCompile(`^script-src 'self' https://cdn\.jsdelivr\.net 'nonce-([A-Za-z0-9+/]{22})'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'$`)
 
 func cspNonceOf(t *testing.T) string {
 	t.Helper()
@@ -230,22 +230,24 @@ func TestHandleRootServesStyle(t *testing.T) {
 	}
 }
 
-// style-src 'self' is reported, not enforced, on the page: the Report-Only
-// policy is the enforcing one, same nonce, plus style-src 'self'. The
-// enforcing policy itself is unchanged and still has no style-src.
-func TestCSPReportOnlyAddsStyleSrc(t *testing.T) {
+// GRV-007 style-src phase 2: style-src 'self' is enforced, same nonce, and the
+// phase-1 Report-Only policy is gone from every path.
+func TestCSPEnforcesStyleSrc(t *testing.T) {
 	rec := httptest.NewRecorder()
 	securityHeaders(http.HandlerFunc(handleRoot)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	csp := rec.Header().Get("Content-Security-Policy")
 	if !cspNonceRE.MatchString(csp) {
-		t.Errorf("Content-Security-Policy = %q, does not match the unchanged enforcing policy", csp)
+		t.Errorf("Content-Security-Policy = %q, does not match the expected policy", csp)
 	}
-	if strings.Contains(csp, "style-src") {
-		t.Errorf("Content-Security-Policy = %q, must not enforce style-src yet", csp)
+	if n := strings.Count(csp, "style-src 'self'"); n != 1 {
+		t.Errorf("Content-Security-Policy = %q, contains style-src 'self' %d times, want 1", csp, n)
 	}
-	ro := rec.Header().Get("Content-Security-Policy-Report-Only")
-	if want := csp + "; style-src 'self'"; ro != want {
-		t.Errorf("Content-Security-Policy-Report-Only = %q, want %q", ro, want)
+	for _, p := range []string{"/", "/style.css"} {
+		rec := httptest.NewRecorder()
+		securityHeaders(http.HandlerFunc(handleRoot)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if ro := rec.Header().Values("Content-Security-Policy-Report-Only"); len(ro) != 0 {
+			t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, want no such header", p, ro)
+		}
 	}
 }
 

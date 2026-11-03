@@ -76,8 +76,9 @@ func main() {
 // it adds. Our own markup contains no nonce and the handlers never see it. It
 // is sent in the header only, never in a <meta> tag, which Cloudflare does not
 // read. If no random bytes are available the request fails with 500 rather
-// than going out with a weaker policy. style-src and connect-src are not set
-// yet; they are later phases.
+// than going out with a weaker policy. style-src 'self' allows only style.css:
+// the page has no <style> block and no style= attribute. connect-src is not
+// set yet; it is a later phase.
 //
 // frame-ancestors governs framing, not scripts, so it is unaffected by the
 // inline problem. X-Frame-Options repeats it for browsers that predate
@@ -100,16 +101,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		// the path or query.
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// Scripts only from this origin and the CDN, no inline script or
-		// event handler attribute, no plugins, no <base>, and (clickjacking) no
-		// site may frame this one.
-		csp := "script-src 'self' https://cdn.jsdelivr.net 'nonce-" + nonce + "'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+		// event handler attribute, no plugins, no <base>, (clickjacking) no
+		// site may frame this one, and styles only from this origin.
+		csp := "script-src 'self' https://cdn.jsdelivr.net 'nonce-" + nonce + "'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'"
 		h.Set("Content-Security-Policy", csp)
-		// style-src phase 1: the page's CSS is style.css and it has no style=
-		// attribute, so style-src 'self' is reported (not enforced) on the
-		// page, with the same nonce, before it is enforced in a later phase.
-		if r.URL.Path == "/" {
-			h.Set("Content-Security-Policy-Report-Only", csp+"; style-src 'self'")
-		}
 		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
