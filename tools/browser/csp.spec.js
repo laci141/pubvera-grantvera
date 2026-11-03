@@ -240,7 +240,7 @@ test("a script with the header's nonce runs, a plain inline script does not", as
   await page.addInitScript(() => {
     window.__cspViolations = [];
     document.addEventListener("securitypolicyviolation", e => {
-      window.__cspViolations.push({ directive: e.violatedDirective, line: e.lineNumber, disposition: e.disposition });
+      window.__cspViolations.push({ directive: e.violatedDirective, line: e.lineNumber });
     });
   });
   let nonce = "";
@@ -264,14 +264,11 @@ test("a script with the header's nonce runs, a plain inline script does not", as
   expect(await page.evaluate(() => window.__nonced)).toBe(1);
   expect(await page.evaluate(() => window.__plain)).toBeUndefined();
   const v = await page.evaluate(() => window.__cspViolations);
-  // Exactly one violation per policy, both on the plain script's line: the
-  // enforcing one and the Report-Only one, which repeats script-src.
-  expect(v.map(x => x.disposition).sort()).toEqual(["enforce", "report"]);
+  // Exactly one violation, and it is the plain script's line.
+  expect(v).toHaveLength(1);
+  expect(v[0].directive).toMatch(/^script-src/);
   expect(plainLine).toBeGreaterThan(0);
-  for (const x of v) {
-    expect(x.directive).toMatch(/^script-src/);
-    expect(x.line).toBe(plainLine);
-  }
+  expect(v[0].line).toBe(plainLine);
 });
 
 test("the nonce is not readable from the DOM", async ({ page }) => {
@@ -282,10 +279,10 @@ test("the nonce is not readable from the DOM", async ({ page }) => {
   expect(nonces.every(n => n === "")).toBe(true);
 });
 
-// GRV-007 style-src phase 1: the CSS is style.css and the page has no style=
-// attribute, so style-src 'self' is sent as Report-Only. A report-only
-// violation also reaches the console ("[Report Only] ... Content Security
-// Policy") and fires securitypolicyviolation, so both are checked.
+// GRV-007 style-src phase 2: the CSS is style.css and the page has no style=
+// attribute, so the enforcing policy carries style-src 'self' and there is no
+// Report-Only policy. A refused style reaches the console ("... Content
+// Security Policy") and fires securitypolicyviolation, so both are checked.
 
 const NIH_FIXTURE = {
   total: 2,
@@ -295,7 +292,7 @@ const NIH_FIXTURE = {
   ],
 };
 
-test("style.css is loaded and style-src 'self' is reported without a violation", async ({ page }) => {
+test("style.css is loaded and style-src 'self' is enforced without a violation", async ({ page }) => {
   const sheets = [];
   page.on("response", r => {
     if (r.request().resourceType() === "stylesheet") sheets.push(r.url() + " " + r.status());
@@ -310,7 +307,8 @@ test("style.css is loaded and style-src 'self' is reported without a violation",
   const log = await load(page);
   expect(sheets).toContain(baseURL + "/style.css 200");
   expect(csp).toContain("script-src-attr 'none'");
-  expect(ro).toBe(csp + "; style-src 'self'");
+  expect(csp.endsWith("; style-src 'self'")).toBe(true);
+  expect(ro).toBe("");
   expect(await page.evaluate(() => document.querySelectorAll("[style]").length)).toBe(0);
   expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
   expectNoCSPViolations(log);
