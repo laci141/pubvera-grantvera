@@ -118,8 +118,10 @@ func TestHandleRootDoesNotServeOtherFiles(t *testing.T) {
 
 // cspNonceRE is the whole policy, so any change to another directive fails it
 // too. The nonce exists only so Cloudflare's injected JS-detections script can
-// run; the page's own markup never carries it.
-var cspNonceRE = regexp.MustCompile(`^script-src 'self' https://cdn\.jsdelivr\.net 'nonce-([A-Za-z0-9+/]{22})'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'$`)
+// run; the page's own markup never carries it. connect-src carries the
+// Supabase origin only when one is configured (TestCSPEnforcesConnectSrc pins
+// the exact value per environment).
+var cspNonceRE = regexp.MustCompile(`^script-src 'self' https://cdn\.jsdelivr\.net 'nonce-([A-Za-z0-9+/]{22})'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'; connect-src 'self'(?: https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?)?; report-to csp; report-uri /csp-report$`)
 
 func cspNonceOf(t *testing.T) string {
 	t.Helper()
@@ -231,8 +233,8 @@ func TestHandleRootServesStyle(t *testing.T) {
 }
 
 // GRV-007 style-src phase 2: style-src 'self' is enforced, same nonce, and the
-// phase-1 style-src Report-Only policy is gone from every path. The Report-Only
-// header that exists now carries connect-src only (TestCSPReportOnlyConnectSrc).
+// phase-1 style-src Report-Only policy is gone from every path. No Report-Only
+// header is sent at all any more (TestCSPEnforcesConnectSrc).
 func TestCSPEnforcesStyleSrc(t *testing.T) {
 	rec := httptest.NewRecorder()
 	securityHeaders(http.HandlerFunc(handleRoot)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
@@ -254,18 +256,19 @@ func TestCSPEnforcesStyleSrc(t *testing.T) {
 	}
 }
 
-// connect-src phase 1 (Report-Only). The Report-Only policy is connect-src
-// alone: 'self', plus the Supabase origin exactly when /config.json hands the
-// page a Supabase config, so the page and the header can never disagree. Each
-// case also pins /config.json byte for byte, because the origin helper now
+// connect-src phase 2 (enforced). The enforcing policy ends with connect-src
+// 'self', plus the Supabase origin exactly when /config.json hands the page a
+// Supabase config, so the page and the header can never disagree, followed by
+// the report directives. No Content-Security-Policy-Report-Only header is sent.
+// Each case also pins /config.json byte for byte, because the origin helper
 // feeds both.
-func TestCSPReportOnlyConnectSrc(t *testing.T) {
-	const self = "connect-src 'self'; report-to csp; report-uri /csp-report"
-	const supa = "connect-src 'self' https://abc.supabase.co; report-to csp; report-uri /csp-report"
+func TestCSPEnforcesConnectSrc(t *testing.T) {
+	const self = "; style-src 'self'; connect-src 'self'; report-to csp; report-uri /csp-report"
+	const supa = "; style-src 'self'; connect-src 'self' https://abc.supabase.co; report-to csp; report-uri /csp-report"
 	const emptyCfg = `{"supabase_url":"","supabase_anon_key":""}` + "\n"
 	for _, tc := range []struct {
 		name, url, key string
-		wantRO         string
+		wantTail       string
 		wantCfg        string
 	}{
 		{"both unset", "", "", self, emptyCfg},
@@ -284,7 +287,7 @@ func TestCSPReportOnlyConnectSrc(t *testing.T) {
 		{"URL with a space in the host", "https://abc .supabase.co", "sb_publishable_k", self,
 			`{"supabase_url":"https://abc .supabase.co","supabase_anon_key":"sb_publishable_k"}` + "\n"},
 		{"URL with port", "https://abc.supabase.co:8443/x", "sb_publishable_k",
-			"connect-src 'self' https://abc.supabase.co:8443; report-to csp; report-uri /csp-report",
+			"; style-src 'self'; connect-src 'self' https://abc.supabase.co:8443; report-to csp; report-uri /csp-report",
 			`{"supabase_url":"https://abc.supabase.co:8443/x","supabase_anon_key":"sb_publishable_k"}` + "\n"},
 		{"URL with userinfo", "https://u:p@abc.supabase.co/", "sb_publishable_k", supa,
 			`{"supabase_url":"https://u:p@abc.supabase.co/","supabase_anon_key":"sb_publishable_k"}` + "\n"},
@@ -298,21 +301,22 @@ func TestCSPReportOnlyConnectSrc(t *testing.T) {
 			for _, p := range []string{"/", "/style.css", "/config.json"} {
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
-				ro := rec.Header().Values("Content-Security-Policy-Report-Only")
-				if len(ro) != 1 || ro[0] != tc.wantRO {
-					t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, want [%q]", p, ro, tc.wantRO)
-				}
-				for _, bad := range []string{"script-src", "style-src", "nonce"} {
-					if len(ro) == 1 && strings.Contains(ro[0], bad) {
-						t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, must not contain %s", p, ro[0], bad)
-					}
+				if ro := rec.Header().Values("Content-Security-Policy-Report-Only"); len(ro) != 0 {
+					t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, want it absent", p, ro)
 				}
 				if got := rec.Header().Get("Reporting-Endpoints"); got != `csp="/csp-report"` {
 					t.Errorf("GET %s Reporting-Endpoints = %q, want %q", p, got, `csp="/csp-report"`)
 				}
-				csp := rec.Header().Get("Content-Security-Policy")
-				if !cspNonceRE.MatchString(csp) || strings.Contains(csp, "connect-src") {
-					t.Errorf("GET %s Content-Security-Policy = %q, want the unchanged enforcing policy without connect-src", p, csp)
+				csps := rec.Header().Values("Content-Security-Policy")
+				if len(csps) != 1 {
+					t.Fatalf("GET %s Content-Security-Policy = %q, want exactly one header", p, csps)
+				}
+				csp := csps[0]
+				if !cspNonceRE.MatchString(csp) || !strings.HasSuffix(csp, tc.wantTail) {
+					t.Errorf("GET %s Content-Security-Policy = %q, want the whole policy ending with %q", p, csp, tc.wantTail)
+				}
+				if n := strings.Count(csp, "connect-src"); n != 1 {
+					t.Errorf("GET %s Content-Security-Policy = %q, contains connect-src %d times, want 1", p, csp, n)
 				}
 				if p == "/config.json" && rec.Body.String() != tc.wantCfg {
 					t.Errorf("GET /config.json body = %q, want %q", rec.Body.String(), tc.wantCfg)

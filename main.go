@@ -84,11 +84,12 @@ func main() {
 // is sent in the header only, never in a <meta> tag, which Cloudflare does not
 // read. If no random bytes are available the request fails with 500 rather
 // than going out with a weaker policy. style-src 'self' allows only style.css:
-// the page has no <style> block and no style= attribute. connect-src is not
-// enforced yet: it is sent in a separate Content-Security-Policy-Report-Only
-// header, connect-src alone ('self', plus the Supabase origin when /config.json
-// has a Supabase config, from the same supabaseConfig call), and reported to
-// POST /csp-report (handleCSPReport).
+// the page has no <style> block and no style= attribute. connect-src is
+// enforced: 'self', plus the Supabase origin when /config.json has a Supabase
+// config (from the same supabaseConfig call), so fetch, XHR, WebSocket and
+// beacon requests to any other host are refused. Violations of the policy are
+// reported to POST /csp-report (handleCSPReport). There is no Report-Only
+// header.
 //
 // frame-ancestors governs framing, not scripts, so it is unaffected by the
 // inline problem. X-Frame-Options repeats it for browsers that predate
@@ -112,16 +113,14 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// Scripts only from this origin and the CDN, no inline script or
 		// event handler attribute, no plugins, no <base>, (clickjacking) no
-		// site may frame this one, and styles only from this origin.
-		csp := "script-src 'self' https://cdn.jsdelivr.net 'nonce-" + nonce + "'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'"
-		h.Set("Content-Security-Policy", csp)
-		// connect-src, report-only for now. No script-src, style-src or nonce
-		// here: those are enforced above, and repeating them would report every
-		// blocked inline script a second time. The endpoint URL is relative;
-		// the browser resolves it against the response URL.
+		// site may frame this one, styles only from this origin, and
+		// connections only to this origin and the configured Supabase origin.
+		// The report endpoint URL is relative; the browser resolves it
+		// against the response URL.
 		_, _, supaOrigin := supabaseConfig()
+		csp := "script-src 'self' https://cdn.jsdelivr.net 'nonce-" + nonce + "'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'" + cspConnectSrc(supaOrigin)
+		h.Set("Content-Security-Policy", csp)
 		h.Set("Reporting-Endpoints", `csp="/csp-report"`)
-		h.Set("Content-Security-Policy-Report-Only", cspReportOnly(supaOrigin))
 		h.Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
@@ -671,11 +670,10 @@ func supabaseConfig() (supaURL, supaKey, origin string) {
 // in a host, which inside a CSP header would start a new directive.
 var cspHostRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$`)
 
-// cspReportOnly is the connect-src Report-Only policy for one response. It
-// carries connect-src alone: repeating script-src here would make every
-// blocked inline script raise a second, report-mode violation.
-func cspReportOnly(origin string) string {
-	src := "connect-src 'self'"
+// cspConnectSrc is the tail of the enforcing policy for one response:
+// connect-src ('self', plus origin when non-empty) and the report directives.
+func cspConnectSrc(origin string) string {
+	src := "; connect-src 'self'"
 	if origin != "" {
 		src += " " + origin
 	}
@@ -735,7 +733,7 @@ type cspViolation struct {
 	disposition, directive, blocked, document string
 }
 
-// handleCSPReport receives Content-Security-Policy-Report-Only reports:
+// handleCSPReport receives Content-Security-Policy violation reports:
 // report-to (application/reports+json, an array of reports) and report-uri
 // (application/csp-report, one object). It logs one line per violation with
 // the blocked origin and the page path only: no query, fragment, header,

@@ -27,6 +27,8 @@ let supaURL;
 // The servers' log output (the standard log package writes to stderr).
 let serverLog = "";
 const SUPA_ORIGIN = "https://example.supabase.co";
+// The end of the enforcing policy on the server without a Supabase config.
+const SELF_TAIL = "; connect-src 'self'; report-to csp; report-uri /csp-report";
 
 // Port 0 lets the OS choose; the listener is closed again and the port handed
 // to the server. Another process could take it in between, which would make
@@ -303,8 +305,8 @@ test("the nonce is not readable from the DOM", async ({ page }) => {
 });
 
 // GRV-007 style-src phase 2: the CSS is style.css and the page has no style=
-// attribute, so the enforcing policy carries style-src 'self'. The only
-// Report-Only policy is connect-src (below). A refused style reaches the console
+// attribute, so the enforcing policy carries style-src 'self'. No Report-Only
+// policy is sent (connect-src is enforced too, below). A refused style reaches the console
 // ("... Content Security Policy") and fires securitypolicyviolation, so both are
 // checked.
 
@@ -331,8 +333,8 @@ test("style.css is loaded and style-src 'self' is enforced without a violation",
   const log = await load(page);
   expect(sheets).toContain(baseURL + "/style.css 200");
   expect(csp).toContain("script-src-attr 'none'");
-  expect(csp.endsWith("; style-src 'self'")).toBe(true);
-  expect(ro).toBe("connect-src 'self'; report-to csp; report-uri /csp-report");
+  expect(csp.endsWith("; style-src 'self'" + SELF_TAIL)).toBe(true);
+  expect(ro).toBe("");
   expect(await page.evaluate(() => document.querySelectorAll("[style]").length)).toBe(0);
   expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
   expectNoCSPViolations(log);
@@ -371,10 +373,11 @@ test("money bars get their width through the CSSOM", async ({ page }) => {
   expectNoCSPViolations(log);
 });
 
-// connect-src phase 1: Content-Security-Policy-Report-Only carries connect-src
-// alone, 'self' plus the Supabase origin when /config.json has a Supabase
-// config. A report-only refusal prints "[Report Only] Refused to connect ..."
-// on the console and fires securitypolicyviolation, so both are checked.
+// connect-src phase 2: the enforcing Content-Security-Policy ends with
+// connect-src 'self', plus the Supabase origin when /config.json has a Supabase
+// config, and the report directives. There is no Report-Only header. A refused
+// connection prints a connect-src message on the console and fires
+// securitypolicyviolation, so both are checked.
 
 const CONNECT_RE = /connect-src|Refused to connect/i;
 function expectNoConnectSrc(log, violations) {
@@ -384,7 +387,8 @@ function expectNoConnectSrc(log, violations) {
 
 test("the unauthenticated page raises no connect-src report", async ({ page }) => {
   const log = await load(page);
-  expect(log.headers["content-security-policy-report-only"]).toBe("connect-src 'self'; report-to csp; report-uri /csp-report");
+  expect(log.headers["content-security-policy"].endsWith(SELF_TAIL)).toBe(true);
+  expect(log.headers["content-security-policy-report-only"] || "").toBe("");
   expect(log.headers["reporting-endpoints"]).toBe('csp="/csp-report"');
   await page.route("**/api/**", r => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(OPEN_FIXTURE) }));
   await page.locator(".chip", { hasText: "Climate" }).click();
@@ -392,6 +396,21 @@ test("the unauthenticated page raises no connect-src report", async ({ page }) =
   await expect(page.locator("#open_tw tbody tr")).toHaveCount(2);
   expectNoConnectSrc(log, await page.evaluate(() => window.__cspViolations));
   expectNoCSPViolations(log);
+});
+
+test("a fetch to a host outside connect-src is refused and never leaves the page", async ({ page }) => {
+  let blocked = 0;
+  await page.route("https://blocked.invalid/**", r => {
+    blocked++;
+    return r.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*" }, body: "ok" });
+  });
+  const log = await load(page);
+  expect(log.headers["content-security-policy"].endsWith(SELF_TAIL)).toBe(true);
+  const result = await page.evaluate(() => fetch("https://blocked.invalid/x").then(r => "resolved " + r.status, e => "rejected " + e.name));
+  expect(result).toBe("rejected TypeError");
+  await expect.poll(() => log.console.filter(m => /Refused to connect/.test(m)).length).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__cspViolations.filter(v => v.startsWith("connect-src")).length)).toBe(1);
+  expect(blocked).toBe(0);
 });
 
 // The fake session is the one the connect-src measurement used: an unexpired
@@ -424,8 +443,9 @@ test("signed in with Supabase, Sign out raises no connect-src report", async ({ 
   expect(supa.filter(s => s.startsWith("POST /auth/v1/logout"))).toHaveLength(1);
   expectNoConnectSrc(log, await page.evaluate(() => window.__cspViolations));
   expectNoCSPViolations(log);
-  // Last, so a missing origin shows up as the browser's own report first.
-  expect(log.headers["content-security-policy-report-only"]).toBe("connect-src 'self' " + SUPA_ORIGIN + "; report-to csp; report-uri /csp-report");
+  // Last, so a missing origin shows up as the refused logout first.
+  expect(log.headers["content-security-policy"].endsWith("; connect-src 'self' " + SUPA_ORIGIN + "; report-to csp; report-uri /csp-report")).toBe(true);
+  expect(log.headers["content-security-policy-report-only"] || "").toBe("");
 });
 
 // The endpoint on the real server and mux, posted to directly: Chromium does
@@ -444,7 +464,8 @@ test("POST /csp-report on the real server answers 204 and logs one line without 
   expect(res.status).toBe(204);
   expect(await res.text()).toBe("");
   expect(res.headers.get("reporting-endpoints")).toBe('csp="/csp-report"');
-  expect(res.headers.get("content-security-policy-report-only")).toBe("connect-src 'self'; report-to csp; report-uri /csp-report");
+  expect(res.headers.get("content-security-policy").endsWith(SELF_TAIL)).toBe(true);
+  expect(res.headers.get("content-security-policy-report-only")).toBeNull();
   const want = "csp-violation disposition=report directive=connect-src blocked=https://blocked.example page=/" + marker;
   await expect.poll(() => serverLog.split(/\r?\n/).filter(l => l.endsWith(" " + want)).length).toBe(1);
   expect(serverLog).not.toContain("SECRET");
