@@ -231,7 +231,8 @@ func TestHandleRootServesStyle(t *testing.T) {
 }
 
 // GRV-007 style-src phase 2: style-src 'self' is enforced, same nonce, and the
-// phase-1 Report-Only policy is gone from every path.
+// phase-1 style-src Report-Only policy is gone from every path. The Report-Only
+// header that exists now carries connect-src only (TestCSPReportOnlyConnectSrc).
 func TestCSPEnforcesStyleSrc(t *testing.T) {
 	rec := httptest.NewRecorder()
 	securityHeaders(http.HandlerFunc(handleRoot)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
@@ -245,9 +246,79 @@ func TestCSPEnforcesStyleSrc(t *testing.T) {
 	for _, p := range []string{"/", "/style.css"} {
 		rec := httptest.NewRecorder()
 		securityHeaders(http.HandlerFunc(handleRoot)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
-		if ro := rec.Header().Values("Content-Security-Policy-Report-Only"); len(ro) != 0 {
-			t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, want no such header", p, ro)
+		for _, ro := range rec.Header().Values("Content-Security-Policy-Report-Only") {
+			if strings.Contains(ro, "style-src") {
+				t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, must not carry style-src", p, ro)
+			}
 		}
+	}
+}
+
+// connect-src phase 1 (Report-Only). The Report-Only policy is connect-src
+// alone: 'self', plus the Supabase origin exactly when /config.json hands the
+// page a Supabase config, so the page and the header can never disagree. Each
+// case also pins /config.json byte for byte, because the origin helper now
+// feeds both.
+func TestCSPReportOnlyConnectSrc(t *testing.T) {
+	const self = "connect-src 'self'; report-to csp; report-uri /csp-report"
+	const supa = "connect-src 'self' https://abc.supabase.co; report-to csp; report-uri /csp-report"
+	const emptyCfg = `{"supabase_url":"","supabase_anon_key":""}` + "\n"
+	for _, tc := range []struct {
+		name, url, key string
+		wantRO         string
+		wantCfg        string
+	}{
+		{"both unset", "", "", self, emptyCfg},
+		{"both set with a path", "https://abc.supabase.co/rest/v1?x=1#f", "sb_publishable_k", supa,
+			`{"supabase_url":"https://abc.supabase.co/rest/v1?x=1#f","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"both set, padded with spaces", "  https://abc.supabase.co  ", " sb_publishable_k ", supa,
+			`{"supabase_url":"https://abc.supabase.co","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"only URL set", "https://abc.supabase.co", "", self, emptyCfg},
+		{"only key set", "", "sb_publishable_k", self, emptyCfg},
+		{"http URL", "http://abc.supabase.co", "sb_publishable_k", self,
+			`{"supabase_url":"http://abc.supabase.co","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"garbage URL", "not a url", "sb_publishable_k", self,
+			`{"supabase_url":"not a url","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"unparseable URL", "https://%zz", "sb_publishable_k", self,
+			`{"supabase_url":"https://%zz","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"URL with a space in the host", "https://abc .supabase.co", "sb_publishable_k", self,
+			`{"supabase_url":"https://abc .supabase.co","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"URL with port", "https://abc.supabase.co:8443/x", "sb_publishable_k",
+			"connect-src 'self' https://abc.supabase.co:8443; report-to csp; report-uri /csp-report",
+			`{"supabase_url":"https://abc.supabase.co:8443/x","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"URL with userinfo", "https://u:p@abc.supabase.co/", "sb_publishable_k", supa,
+			`{"supabase_url":"https://u:p@abc.supabase.co/","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+		{"host that would inject a directive", "https://abc.supabase.co;script-src", "sb_publishable_k", self,
+			`{"supabase_url":"https://abc.supabase.co;script-src","supabase_anon_key":"sb_publishable_k"}` + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SUPABASE_URL", tc.url)
+			t.Setenv("SUPABASE_PUBLISHABLE_KEY", tc.key)
+			h := securityHeaders(http.HandlerFunc(handleRoot))
+			for _, p := range []string{"/", "/style.css", "/config.json"} {
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+				ro := rec.Header().Values("Content-Security-Policy-Report-Only")
+				if len(ro) != 1 || ro[0] != tc.wantRO {
+					t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, want [%q]", p, ro, tc.wantRO)
+				}
+				for _, bad := range []string{"script-src", "style-src", "nonce"} {
+					if len(ro) == 1 && strings.Contains(ro[0], bad) {
+						t.Errorf("GET %s Content-Security-Policy-Report-Only = %q, must not contain %s", p, ro[0], bad)
+					}
+				}
+				if got := rec.Header().Get("Reporting-Endpoints"); got != `csp="/csp-report"` {
+					t.Errorf("GET %s Reporting-Endpoints = %q, want %q", p, got, `csp="/csp-report"`)
+				}
+				csp := rec.Header().Get("Content-Security-Policy")
+				if !cspNonceRE.MatchString(csp) || strings.Contains(csp, "connect-src") {
+					t.Errorf("GET %s Content-Security-Policy = %q, want the unchanged enforcing policy without connect-src", p, csp)
+				}
+				if p == "/config.json" && rec.Body.String() != tc.wantCfg {
+					t.Errorf("GET /config.json body = %q, want %q", rec.Body.String(), tc.wantCfg)
+				}
+			}
+		})
 	}
 }
 

@@ -20,6 +20,13 @@ const bin = path.join(os.tmpdir(), "grantvera-browser-test", process.platform ==
 
 let server;
 let baseURL;
+// A second server with a Supabase config, for the connect-src checks. Its host
+// is example.supabase.co, and every request to it is stubbed in the test.
+let supaServer;
+let supaURL;
+// The servers' log output (the standard log package writes to stderr).
+let serverLog = "";
+const SUPA_ORIGIN = "https://example.supabase.co";
 
 // Port 0 lets the OS choose; the listener is closed again and the port handed
 // to the server. Another process could take it in between, which would make
@@ -35,33 +42,45 @@ function freePort() {
   });
 }
 
-test.beforeAll(async () => {
-  execFileSync("go", ["build", "-o", bin, "."], { cwd: repo, stdio: "inherit" });
+async function startServer(env) {
   const port = await freePort();
-  baseURL = "http://127.0.0.1:" + port;
-  // Empty Supabase config: the page runs unauthenticated.
-  server = spawn(bin, [], {
+  const url = "http://127.0.0.1:" + port;
+  const proc = spawn(bin, [], {
     cwd: repo,
-    env: { ...process.env, PORT: String(port), SUPABASE_URL: "", SUPABASE_PUBLISHABLE_KEY: "" },
-    stdio: "ignore",
+    env: { ...process.env, PORT: String(port), ...env },
+    stdio: ["ignore", "ignore", "pipe"],
   });
+  proc.stderr.on("data", d => { serverLog += d; });
   const deadline = Date.now() + 15000;
   for (;;) {
     try {
-      const res = await fetch(baseURL + "/healthz");
+      const res = await fetch(url + "/healthz");
       if (res.ok) break;
     } catch (_) { /* not listening yet */ }
-    if (Date.now() > deadline) throw new Error("server did not answer /healthz on " + baseURL);
+    if (Date.now() > deadline) throw new Error("server did not answer /healthz on " + url);
     await new Promise(r => setTimeout(r, 100));
   }
+  return { proc, url };
+}
+
+async function stopServer(proc) {
+  if (proc && proc.exitCode === null) {
+    const exited = new Promise(r => proc.once("exit", r));
+    proc.kill();
+    await exited;
+  }
+}
+
+test.beforeAll(async () => {
+  execFileSync("go", ["build", "-o", bin, "."], { cwd: repo, stdio: "inherit" });
+  // Empty Supabase config: the page runs unauthenticated.
+  ({ proc: server, url: baseURL } = await startServer({ SUPABASE_URL: "", SUPABASE_PUBLISHABLE_KEY: "" }));
+  ({ proc: supaServer, url: supaURL } = await startServer({ SUPABASE_URL: SUPA_ORIGIN, SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test" }));
 });
 
 test.afterAll(async () => {
-  if (server && server.exitCode === null) {
-    const exited = new Promise(r => server.once("exit", r));
-    server.kill();
-    await exited;
-  }
+  await stopServer(server);
+  await stopServer(supaServer);
 });
 
 // Every console message and page error, so each test can assert that nothing
@@ -78,10 +97,13 @@ function expectNoCSPViolations(log) {
   expect(log.pageErrors, "page errors").toEqual([]);
 }
 
-async function load(page) {
+async function load(page, { origin = baseURL, realSupabaseJS = false } = {}) {
   // The xlsx bundle on the CDN is not needed for these checks; keep the run
-  // offline-safe and fast.
-  await page.route("https://cdn.jsdelivr.net/**", r => r.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  // offline-safe and fast. supabase-js is loaded for real only where a test
+  // signs out through it (its SRI hash rules out a stub).
+  await page.route("https://cdn.jsdelivr.net/**", r => (realSupabaseJS && r.request().url().includes("/@supabase/supabase-js@"))
+    ? r.continue()
+    : r.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
   // Recorded in the page from the first script on, so a violation raised
   // while the page loads is not missed.
   await page.addInitScript(() => {
@@ -91,8 +113,9 @@ async function load(page) {
     });
   });
   const log = watch(page);
-  const res = await page.goto(baseURL + "/");
+  const res = await page.goto(origin + "/");
   expect(res.headers()["content-security-policy"]).toContain("script-src-attr 'none'");
+  log.headers = res.headers();
   return log;
 }
 
@@ -280,9 +303,10 @@ test("the nonce is not readable from the DOM", async ({ page }) => {
 });
 
 // GRV-007 style-src phase 2: the CSS is style.css and the page has no style=
-// attribute, so the enforcing policy carries style-src 'self' and there is no
-// Report-Only policy. A refused style reaches the console ("... Content
-// Security Policy") and fires securitypolicyviolation, so both are checked.
+// attribute, so the enforcing policy carries style-src 'self'. The only
+// Report-Only policy is connect-src (below). A refused style reaches the console
+// ("... Content Security Policy") and fires securitypolicyviolation, so both are
+// checked.
 
 const NIH_FIXTURE = {
   total: 2,
@@ -308,7 +332,7 @@ test("style.css is loaded and style-src 'self' is enforced without a violation",
   expect(sheets).toContain(baseURL + "/style.css 200");
   expect(csp).toContain("script-src-attr 'none'");
   expect(csp.endsWith("; style-src 'self'")).toBe(true);
-  expect(ro).toBe("");
+  expect(ro).toBe("connect-src 'self'; report-to csp; report-uri /csp-report");
   expect(await page.evaluate(() => document.querySelectorAll("[style]").length)).toBe(0);
   expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
   expectNoCSPViolations(log);
@@ -345,4 +369,87 @@ test("money bars get their width through the CSSOM", async ({ page }) => {
   expect(await bars()).toEqual(["100 100% true"]);
   expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
   expectNoCSPViolations(log);
+});
+
+// connect-src phase 1: Content-Security-Policy-Report-Only carries connect-src
+// alone, 'self' plus the Supabase origin when /config.json has a Supabase
+// config. A report-only refusal prints "[Report Only] Refused to connect ..."
+// on the console and fires securitypolicyviolation, so both are checked.
+
+const CONNECT_RE = /connect-src|Refused to connect/i;
+function expectNoConnectSrc(log, violations) {
+  expect(log.console.filter(m => CONNECT_RE.test(m)), "connect-src console messages").toEqual([]);
+  expect(violations.filter(v => v.startsWith("connect-src")), "connect-src violations").toEqual([]);
+}
+
+test("the unauthenticated page raises no connect-src report", async ({ page }) => {
+  const log = await load(page);
+  expect(log.headers["content-security-policy-report-only"]).toBe("connect-src 'self'; report-to csp; report-uri /csp-report");
+  expect(log.headers["reporting-endpoints"]).toBe('csp="/csp-report"');
+  await page.route("**/api/**", r => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(OPEN_FIXTURE) }));
+  await page.locator(".chip", { hasText: "Climate" }).click();
+  await page.locator("#open-query").press("Enter");
+  await expect(page.locator("#open_tw tbody tr")).toHaveCount(2);
+  expectNoConnectSrc(log, await page.evaluate(() => window.__cspViolations));
+  expectNoCSPViolations(log);
+});
+
+// The fake session is the one the connect-src measurement used: an unexpired
+// JWT-shaped token in supabase-js's storage key for project "example". Every
+// request to example.supabase.co is stubbed; no real Supabase host is contacted.
+function fakeSession() {
+  const b64 = o => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const exp = Math.floor(Date.now() / 1000) + 7200;
+  const user = { id: "00000000-0000-4000-8000-000000000001", aud: "authenticated", role: "authenticated", email: "pw@example.invalid" };
+  return {
+    access_token: b64({ alg: "HS256", typ: "JWT" }) + "." + b64({ sub: user.id, aud: "authenticated", role: "authenticated", email: user.email, exp }) + ".sig",
+    token_type: "bearer", expires_in: 7200, expires_at: exp, refresh_token: "fake-refresh-token", user,
+  };
+}
+
+test("signed in with Supabase, Sign out raises no connect-src report", async ({ page }) => {
+  const supa = [];
+  await page.route(SUPA_ORIGIN + "/**", r => {
+    supa.push(r.request().method() + " " + new URL(r.request().url()).pathname);
+    return r.fulfill({
+      status: 204,
+      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" },
+    });
+  });
+  await page.addInitScript(s => localStorage.setItem("sb-example-auth-token", JSON.stringify(s)), fakeSession());
+  const log = await load(page, { origin: supaURL, realSupabaseJS: true });
+  await expect(page.locator("#authEmail")).toHaveText("pw@example.invalid");
+  await page.locator("#authSignOutBtn").click();
+  await expect(page.locator("#authSignInBtn")).toBeVisible();
+  expect(supa.filter(s => s.startsWith("POST /auth/v1/logout"))).toHaveLength(1);
+  expectNoConnectSrc(log, await page.evaluate(() => window.__cspViolations));
+  expectNoCSPViolations(log);
+  // Last, so a missing origin shows up as the browser's own report first.
+  expect(log.headers["content-security-policy-report-only"]).toBe("connect-src 'self' " + SUPA_ORIGIN + "; report-to csp; report-uri /csp-report");
+});
+
+// The endpoint on the real server and mux, posted to directly: Chromium does
+// not deliver report-to reports to this http://127.0.0.1 origin (measured; see
+// the PR notes), so browser delivery is not asserted here.
+test("POST /csp-report on the real server answers 204 and logs one line without the query", async () => {
+  const marker = "pw-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+  const res = await fetch(baseURL + "/csp-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/csp-report" },
+    body: JSON.stringify({ "csp-report": {
+      "document-uri": baseURL + "/" + marker + "?q=1", "effective-directive": "connect-src", "disposition": "report",
+      "blocked-uri": "https://blocked.example/collect?code=SECRET&x=1",
+    } }),
+  });
+  expect(res.status).toBe(204);
+  expect(await res.text()).toBe("");
+  expect(res.headers.get("reporting-endpoints")).toBe('csp="/csp-report"');
+  expect(res.headers.get("content-security-policy-report-only")).toBe("connect-src 'self'; report-to csp; report-uri /csp-report");
+  const want = "csp-violation disposition=report directive=connect-src blocked=https://blocked.example page=/" + marker;
+  await expect.poll(() => serverLog.split(/\r?\n/).filter(l => l.endsWith(" " + want)).length).toBe(1);
+  expect(serverLog).not.toContain("SECRET");
+
+  const get = await fetch(baseURL + "/csp-report");
+  expect(get.status).toBe(405);
+  expect(get.headers.get("allow")).toBe("POST");
 });
