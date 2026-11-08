@@ -627,6 +627,14 @@
       // Every toolbar gets its own panel id: aria-controls must name one element.
       metaRow.menuSeq = (metaRow.menuSeq || 0) + 1;
       const menuId = 'dl-menu-' + metaRow.menuSeq;
+      // The quick-filter box has a placeholder only, and a placeholder is not a
+      // name; this is what a screen reader announces for it. Kept inside
+      // metaRow so the function stays self-contained.
+      const FILTER_NAME = {
+        open: 'Filter open grant results',
+        nih:  'Filter NIH award results',
+        nsf:  'Filter NSF award results'
+      };
       // The separator lives with the label, not with the counter, so hiding the
       // label on a narrow viewport cannot leave a dangling em dash behind.
       return '<div class="meta-row"><span class="meta">' +
@@ -634,6 +642,7 @@
         '<span class="qcount" id="' + key + '_qc"></span></span>' +
         '<span class="dl-group">' +
         '<input class="qfilter" type="text" placeholder="🔍 Filter results…" ' +
+          'aria-label="' + esc(FILTER_NAME[key]) + '" ' +
           'data-input="onFilter" data-key="' + esc(key) + '">' +
         '<span class="dl-menu-wrap">' +
         '<button type="button" class="dl dl-trigger" data-action="toggleExportMenu" aria-haspopup="menu" ' +
@@ -834,12 +843,17 @@
 
       const tw = document.getElementById(key + '_tw');
       if (!tw) return;
-      let h = '<table><thead><tr><th class="n">#</th>';
+      let h = '<table><thead><tr><th class="n" scope="col">#</th>';
       cols.forEach((c, ci) => {
-        if (c.sortable === false) { h += '<th>' + esc(c.label) + '</th>'; return; }
-        const glyph = (st.sort === ci) ? (st.dir > 0 ? '↑' : '↓') : '⇅';
-        h += '<th class="sortable" data-key="' + key + '" data-col="' + ci + '">' +
-             esc(c.label) + ' <span class="sg">' + glyph + '</span></th>';
+        if (c.sortable === false) { h += '<th scope="col">' + esc(c.label) + '</th>'; return; }
+        const sorted = st.sort === ci;
+        const glyph = sorted ? (st.dir > 0 ? '↑' : '↓') : '⇅';
+        // aria-sort goes on the one sorted column only (the WAI-ARIA sortable
+        // table pattern); the glyph is decoration and stays out of the name.
+        const ariaSort = sorted ? (st.dir > 0 ? ' aria-sort="ascending"' : ' aria-sort="descending"') : '';
+        h += '<th class="sortable" scope="col" data-key="' + key + '" data-col="' + ci + '"' + ariaSort + '>' +
+             '<button type="button" class="sort-btn">' + esc(c.label) +
+             ' <span class="sg" aria-hidden="true">' + glyph + '</span></button></th>';
       });
       h += '</tr></thead><tbody>';
       if (!vrows.length) {
@@ -884,6 +898,11 @@
       if (!st) return;
       if (st.sort === ci) st.dir = -st.dir; else { st.sort = ci; st.dir = 1; }
       renderTable(key);
+      // renderTable rebuilds the whole table, which would drop the keyboard
+      // focus with the old button: put it back on the same column's new one.
+      const tw = document.getElementById(key + '_tw');
+      const again = tw ? tw.querySelector('th.sortable[data-col="' + ci + '"] .sort-btn') : null;
+      if (again) again.focus();
     });
 
     // Wires a module's live view into the export layer. Called after every query.
@@ -902,16 +921,43 @@
 
     // --- modal plumbing -----------------------------------------------------
     const MODALS = ['open', 'nih', 'nsf'];
-    function openModal(name, prefill) {
-      MODALS.forEach(closeModal);
+    // The control that opened the dialog gets the focus back when it closes.
+    let modalOpener = null;
+    function hideModal(name) {
+      document.getElementById('modal-' + name).classList.remove('active');
+    }
+    function openModal(name, prefill, opener) {
+      MODALS.forEach(hideModal);
+      modalOpener = opener || null;
       document.getElementById('modal-' + name).classList.add('active');
       const input = document.getElementById(name + '-query');
       if (prefill !== undefined) input.value = prefill;
       setTimeout(() => input.focus(), 50);
     }
     function closeModal(name) {
-      document.getElementById('modal-' + name).classList.remove('active');
+      const wasOpen = document.getElementById('modal-' + name).classList.contains('active');
+      hideModal(name);
+      // Only the dialog that was actually open hands the focus back: Escape
+      // calls this for all three.
+      if (wasOpen && modalOpener && document.contains(modalOpener)) modalOpener.focus();
+      if (wasOpen) modalOpener = null;
     }
+    // Tab and Shift+Tab stay inside the open dialog (aria-modal alone does not
+    // move the keyboard). Controls inside a hidden subtree, such as the closed
+    // export menu, are not reachable and are left out.
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Tab' || e.defaultPrevented) return;
+      const dlg = document.querySelector('.modal.active .modal-content');
+      if (!dlg) return;
+      const items = Array.from(dlg.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      )).filter(el => !el.closest('[hidden]') && el.getClientRects().length > 0);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1], cur = document.activeElement;
+      if (!dlg.contains(cur)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && cur === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && cur === last) { e.preventDefault(); first.focus(); }
+    });
     MODALS.forEach(name => {
       document.getElementById('modal-' + name).addEventListener('click', e => {
         if (e.target === e.currentTarget) closeModal(name);
@@ -930,7 +976,7 @@
     // DOM is never resolved through window, so injected markup cannot reach an
     // arbitrary global.
     const CLICK_ACTIONS = {
-      openModal:      el => openModal(el.dataset.modal, el.dataset.prefill),
+      openModal:      el => openModal(el.dataset.modal, el.dataset.prefill, el),
       closeModal:     el => closeModal(el.dataset.modal),
       runOpen:        () => runOpen(),
       runNIH:         () => runNIH(),

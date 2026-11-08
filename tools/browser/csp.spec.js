@@ -474,3 +474,115 @@ test("POST /csp-report on the real server answers 204 and logs one line without 
   expect(get.status).toBe(405);
   expect(get.headers.get("allow")).toBe("POST");
 });
+
+// ── Keyboard and screen-reader access (audit GRV-A11Y-001 … 005) ─────────────
+
+test("the bento cards are native buttons reached by Tab; Enter and Space open their modal and Escape gives the focus back", async ({ page }) => {
+  const log = await load(page);
+  for (const name of ["open", "nih", "nsf"]) {
+    expect(await page.locator(".bento-card." + name).evaluate(el => el.tagName), name + " card element").toBe("BUTTON");
+  }
+  // Tab alone reaches all three, in document order.
+  const reached = [];
+  for (let i = 0; i < 12 && reached.length < 3; i++) {
+    await page.keyboard.press("Tab");
+    const m = await page.evaluate(() => { const a = document.activeElement; return a.matches("button.bento-card") ? a.dataset.modal : null; });
+    if (m) reached.push(m);
+  }
+  expect(reached).toEqual(["open", "nih", "nsf"]);
+  // Enter opens one, Space another; Escape closes and the card has the focus again.
+  for (const [name, key] of [["open", "Enter"], ["nih", "Space"], ["nsf", "Enter"]]) {
+    const card = page.locator("button.bento-card." + name);
+    await card.focus();
+    await page.keyboard.press(key);
+    await expect(page.locator("#modal-" + name)).toHaveClass(/\bactive\b/);
+    await expect(page.locator("#" + name + "-query")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#modal-" + name)).not.toHaveClass(/\bactive\b/);
+    await expect(card).toBeFocused();
+  }
+  // The close button hands the focus back to the control that opened the dialog.
+  const chip = page.locator(".chip", { hasText: "Climate" });
+  await chip.click();
+  await expect(page.locator("#modal-open")).toHaveClass(/\bactive\b/);
+  await page.locator("#modal-open .close-btn").click();
+  await expect(chip).toBeFocused();
+  expectNoCSPViolations(log);
+});
+
+test("each modal is a named dialog with a named close button, and Tab and Shift+Tab never leave it", async ({ page }) => {
+  const log = await load(page);
+  for (const [name, title] of [["open", "Open Grants"], ["nih", "Awarded NIH Grants"], ["nsf", "Awarded NSF Grants"]]) {
+    await page.locator("button.bento-card." + name).click();
+    const dlg = page.getByRole("dialog", { name: title });
+    await expect(dlg).toBeVisible();
+    await expect(dlg).toHaveAttribute("aria-modal", "true");
+    await expect(dlg.getByRole("button", { name: "Close " + title + " dialog", exact: true })).toBeVisible();
+    await expect(page.locator("#" + name + "-query")).toBeFocused();
+    // More presses than the dialog has controls, in both directions.
+    for (const key of ["Tab", "Shift+Tab"]) {
+      for (let i = 0; i < 25; i++) {
+        await page.keyboard.press(key);
+        const inside = await page.evaluate(n => !!document.activeElement.closest("#modal-" + n + " .modal-content"), name);
+        expect(inside, name + ": focus after " + key + " press " + (i + 1) + " is inside the dialog").toBe(true);
+      }
+    }
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#modal-" + name)).not.toHaveClass(/\bactive\b/);
+  }
+  expectNoCSPViolations(log);
+});
+
+test("the five range sliders are named by their labels, and a label focuses its slider", async ({ page }) => {
+  const log = await load(page);
+  const sliders = [["open", "open-rows", "Rows"], ["nih", "nih-min", "Min amount"], ["nih", "nih-rows", "Rows"],
+                   ["nsf", "nsf-min", "Min amount"], ["nsf", "nsf-rows", "Rows"]];
+  for (const [card, id, text] of sliders) {
+    await page.locator("button.bento-card." + card).click();
+    await expect(page.locator("#" + card + "-query")).toBeFocused();
+    await expect(page.locator("#" + id)).toHaveAccessibleName(new RegExp("^" + text + ":"));
+    await page.locator('label[for="' + id + '"]').click();
+    await expect(page.locator("#" + id)).toBeFocused();
+    // The open dialog covers the cards: close it before the next one is clicked.
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#modal-" + card)).not.toHaveClass(/\bactive\b/);
+  }
+  expectNoCSPViolations(log);
+});
+
+test("sortable headers are buttons: Enter and Space sort, aria-sort follows, the focus stays, the quick filter has a name", async ({ page }) => {
+  const log = await load(page);
+  await page.route("**/api/**", r => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(OPEN_FIXTURE) }));
+  await page.locator(".chip", { hasText: "Climate" }).click();
+  await page.locator("#open-query").press("Enter");
+  await expect(page.locator("#open_tw tbody tr")).toHaveCount(2);
+
+  await expect(page.getByRole("textbox", { name: "Filter open grant results", exact: true })).toBeVisible();
+  // Every header cell says which axis it heads.
+  expect(await page.locator("#open_tw thead th:not([scope=col])").count(), "header cells without scope=col").toBe(0);
+
+  const th = page.locator('#open_tw th.sortable[data-col="1"]');
+  const btn = th.locator(".sort-btn");
+  const firstTitle = page.locator("#open_tw tbody tr:first-child td:nth-child(3)");
+  expect(await th.getAttribute("aria-sort"), "unsorted column carries no aria-sort").toBeNull();
+  await expect(page.getByRole("columnheader", { name: "Title", exact: true })).toBeVisible();
+
+  await btn.focus();
+  await page.keyboard.press("Enter");
+  await expect(th).toHaveAttribute("aria-sort", "ascending");
+  await expect(firstTitle).toHaveText("Climate resilience 1");
+  await expect(btn).toBeFocused();
+
+  await page.keyboard.press("Space");
+  await expect(th).toHaveAttribute("aria-sort", "descending");
+  await expect(firstTitle).toHaveText("Coastal flooding 2");
+  await expect(btn).toBeFocused();
+
+  // A mouse click keeps working, and sorting another column clears this one.
+  await btn.click();
+  await expect(th).toHaveAttribute("aria-sort", "ascending");
+  await page.locator('#open_tw th.sortable[data-col="0"] .sort-btn').click();
+  expect(await th.getAttribute("aria-sort"), "the previously sorted column loses aria-sort").toBeNull();
+  await expect(page.locator('#open_tw th.sortable[data-col="0"]')).toHaveAttribute("aria-sort", "ascending");
+  expectNoCSPViolations(log);
+});
