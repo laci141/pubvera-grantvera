@@ -1061,9 +1061,10 @@
     function errorHTML(err) {
       const st = err && err.status, d = (err && err.data) || {};
       if (st === 401 && window.pubveraAuth && window.pubveraAuth.unavailable) {
-        // The Supabase script did not load, so a sign-in prompt could not work.
+        // Sign-in did not start, so a sign-in prompt could not work. The module
+        // script says why in unavailableText; the default is the old script case.
         return '<div class="errcard"><h4>Sign-in required</h4>' +
-          '<p>Sign-in is unavailable: a required script did not load.</p></div>';
+          '<p>' + esc(window.pubveraAuth.unavailableText || 'Sign-in is unavailable: a required script did not load.') + '</p></div>';
       }
       if (st === 401) {
         // The raw error ("missing/invalid token") tells the user nothing they can
