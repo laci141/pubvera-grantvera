@@ -225,6 +225,12 @@
     .bento-icon { font-size: 3rem; margin-bottom: 0.75rem; }
     .bento-label { font-size: 1.3rem; font-weight: 600; color: var(--color); margin-bottom: 0.5rem; }
     .bento-desc { font-size: 0.92rem; color: #aaa; }
+    /* The cards are native buttons (keyboard focus, Enter and Space for free).
+       A button brings its own font, colour and width, so the card states them,
+       and its three children are spans, which must be blocks to stack. */
+    button.bento-card { font: inherit; color: inherit; width: 100%; margin: 0; }
+    .bento-icon, .bento-label, .bento-desc { display: block; }
+    .bento-card:focus-visible { outline: 2px solid var(--color); outline-offset: 3px; }
 
     /* DISCLAIMER */
     .disclaimer-wrap { max-width: 1100px; margin: 0 auto; padding: 0.5rem 2rem 1rem; }
@@ -318,6 +324,10 @@
     th.sortable { cursor: pointer; user-select: none; transition: color 0.2s ease; }
     th.sortable:hover { color: #e0e0e0; }
     .sg { color: #667; font-size: 0.85rem; }
+    /* The sortable header holds a native button; it looks like the plain header
+       text it replaced. */
+    .sort-btn { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
+    .sort-btn:focus-visible { outline: 2px solid #00d4ff; outline-offset: 2px; }
     th.sortable:hover .sg { color: #00d4ff; }
     .nomatch { color: #888; font-style: italic; padding: 1rem 0; }
     .verify { color: #7dd3fc; text-decoration: none; font-size: 1rem; }
