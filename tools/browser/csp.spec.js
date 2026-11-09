@@ -398,6 +398,29 @@ test("the unauthenticated page raises no connect-src report", async ({ page }) =
   expectNoCSPViolations(log);
 });
 
+// GRV-SEC-001: default-src 'self' with explicit img-src, font-src and
+// form-action. An image, a font and a form target outside the origin are refused
+// and never requested; the page's own favicon (data: SVG) still loads.
+test("an image, a font and a form target outside the origin are refused by the CSP", async ({ page }) => {
+  const log = await load(page);
+  const outside = [];
+  await page.route("https://evil.invalid/**", r => { outside.push(r.request().url()); return r.fulfill({ status: 200, body: "" }); });
+  await page.evaluate(() => {
+    const img = document.createElement("img"); img.src = "https://evil.invalid/a.png"; document.body.appendChild(img);
+    const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "https://evil.invalid/a.css"; document.head.appendChild(link);
+    const ff = new FontFace("X", "url(https://evil.invalid/a.woff2)"); ff.load().catch(() => {});
+    const f = document.createElement("form"); f.action = "https://evil.invalid/post"; f.method = "post"; document.body.appendChild(f);
+    window.__formTarget = f;
+  });
+  await expect.poll(() => page.evaluate(() => window.__cspViolations.filter(v => v.startsWith("img-src")).length)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.__cspViolations.filter(v => v.startsWith("font-src")).length)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.__cspViolations.filter(v => v.startsWith("style-src")).length)).toBeGreaterThan(0);
+  expect(outside, "requests that left the origin").toEqual([]);
+  expect(log.headers["content-security-policy"].startsWith("default-src 'self'; img-src 'self' data:; font-src 'self'; form-action 'self'; ")).toBe(true);
+  expect(await page.evaluate(() => document.querySelector('link[rel="icon"]') !== null)).toBe(true);
+  expect(log.pageErrors).toEqual([]);
+});
+
 test("a fetch to a host outside connect-src is refused and never leaves the page", async ({ page }) => {
   let blocked = 0;
   await page.route("https://blocked.invalid/**", r => {

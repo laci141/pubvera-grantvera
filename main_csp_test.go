@@ -121,7 +121,7 @@ func TestHandleRootDoesNotServeOtherFiles(t *testing.T) {
 // run; the page's own markup never carries it. connect-src carries the
 // Supabase origin only when one is configured (TestCSPEnforcesConnectSrc pins
 // the exact value per environment).
-var cspNonceRE = regexp.MustCompile(`^script-src 'self' https://cdn\.jsdelivr\.net 'nonce-([A-Za-z0-9+/]{22})'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'; connect-src 'self'(?: https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?)?; report-to csp; report-uri /csp-report$`)
+var cspNonceRE = regexp.MustCompile(`^default-src 'self'; img-src 'self' data:; font-src 'self'; form-action 'self'; script-src 'self' https://cdn\.jsdelivr\.net 'nonce-([A-Za-z0-9+/]{22})'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'; connect-src 'self'(?: https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?)?; report-to csp; report-uri /csp-report$`)
 
 func cspNonceOf(t *testing.T) string {
 	t.Helper()
@@ -198,6 +198,31 @@ func TestScriptsAreRevalidated(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotModified {
 			t.Errorf("GET %s with If-Modified-Since status = %d, want 304", name, rec.Code)
+		}
+	}
+}
+
+// GRV-SEC-001 (audit 2026-11-08): default-src 'self' is the fallback for every
+// fetch type, and img-src, font-src and form-action are named explicitly. The
+// only data: source is img-src, for the inline SVG favicon. Each directive must
+// appear exactly once on every path.
+func TestCSPDefaultSrcAndExplicitTypes(t *testing.T) {
+	h := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.HasPrefix(csp, "default-src 'self'; ") {
+		t.Errorf("Content-Security-Policy = %q, must start with default-src 'self'", csp)
+	}
+	for _, d := range []string{"default-src 'self'", "img-src 'self' data:", "font-src 'self'", "form-action 'self'"} {
+		if n := strings.Count(csp, d+";"); n != 1 {
+			t.Errorf("Content-Security-Policy = %q, contains %q %d times, want 1", csp, d, n)
+		}
+	}
+	// Never a wider source than the page needs.
+	for _, bad := range []string{"img-src *", "font-src *", "form-action *", "unsafe-inline", "unsafe-eval", "default-src *"} {
+		if strings.Contains(csp, bad) {
+			t.Errorf("Content-Security-Policy = %q, contains %q", csp, bad)
 		}
 	}
 }

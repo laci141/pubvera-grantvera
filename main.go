@@ -118,7 +118,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		// The report endpoint URL is relative; the browser resolves it
 		// against the response URL.
 		_, _, supaOrigin := supabaseConfig()
-		csp := "script-src 'self' https://cdn.jsdelivr.net 'nonce-" + nonce + "'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'" + cspConnectSrc(supaOrigin)
+		// default-src 'self' is the fallback for every fetch type not named below.
+		// img-src allows data: only for the inline SVG favicon; no other image,
+		// font or form target leaves the origin.
+		csp := "default-src 'self'; img-src 'self' data:; font-src 'self'; form-action 'self'; script-src 'self' https://cdn.jsdelivr.net 'nonce-" + nonce + "'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'" + cspConnectSrc(supaOrigin)
 		h.Set("Content-Security-Policy", csp)
 		h.Set("Reporting-Endpoints", `csp="/csp-report"`)
 		h.Set("X-Frame-Options", "DENY")
