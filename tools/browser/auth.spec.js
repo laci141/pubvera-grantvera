@@ -99,8 +99,9 @@ const TEXT_START = "Sign-in is unavailable: it could not be started.";
 
 test("an empty config pair is the disabled state: no sign-in UI, nothing logged", async ({ page }) => {
   const log = await boot(page, { config: json(200, { supabase_url: "", supabase_anon_key: "" }) });
-  await page.waitForResponse(/config\.json/);
   // Nothing visible happens in this state, so give the module time to finish.
+  // (Not waitForResponse: goto already waited for the config request, so that
+  // call would wait for a response that has come and gone.)
   await page.waitForTimeout(300);
   await expect(page.locator("#authBar")).toBeHidden();
   expect(await page.evaluate(() => ({ enabled: window.pubveraAuth.enabled, unavailable: window.pubveraAuth.unavailable, sb: typeof window.sb })))
