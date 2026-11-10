@@ -337,10 +337,13 @@
     .dl-badge.red    { background: rgba(239,68,68,0.15);  color: #ef4444; border: 1px solid rgba(239,68,68,0.4); }
     .dl-badge.yellow { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
     .dl-badge.gray   { color: #999; }
-    /* money bars */
-    .bar-container { display: flex; align-items: center; gap: 8px; }
+    /* money bars: the number sits above its track, and the track is as wide as
+       the column. Side by side, the track's own minimum width made the Award
+       amount column ~70 px wider and pushed Fiscal year and URL out of the box
+       at 768 px (measured: tools/bar_track_test.js B9). */
+    .bar-container { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
     .bar-number { font-weight: 700; min-width: 6ch; text-align: right; font-variant-numeric: tabular-nums; }
-    .bar-track { flex: 1; max-width: 150px; min-width: clamp(60px, calc(50px + 4vw), 100px); height: 14px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
+    .bar-track { width: 100%; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
     .bar-chart { display: block; width: 0; height: 100%; border-radius: 4px; opacity: 0.85; }
     .bar-chart.green  { background: linear-gradient(90deg, #22c55e, #86efac); }
     .bar-chart.yellow { background: linear-gradient(90deg, #fbbf24, #fde68a); }
