@@ -1,4 +1,4 @@
-// Bar track test (B1-B8): money bars are a fixed .bar-track with a .bar-chart
+// Bar track test (B1-B9): money bars are a fixed .bar-track with a .bar-chart
 // fill inside, so the fill's CSSOM width (data-pct %) shows the value.
 //
 // Run: node tools/bar_track_test.js
@@ -10,8 +10,8 @@
 // widths follow the values at all three widths (13/11/11 distinct values) and
 // every bar starts on one line.
 //   B1 moneyBar puts the fill inside a .bar-track wrapper;
-//   B2 .bar-track is a flex item with a max-width and a min-width, a fixed
-//      height and a background;
+//   B2 .bar-track spans the cell width (width: 100%), has a fixed height and a
+//      background, and has no own minimum width (no clamp());
 //   B3 .bar-chart is a block with width 0 and height 100% and is NOT a flex
 //      item (no flex: 1, no max-width: those made it collapse);
 //   B4 the share is not rounded to a whole percent (no Math.round in moneyBar)
@@ -19,7 +19,14 @@
 //   B5 applyBarWidths uses max(2px, v%) and gives 0 to a zero amount;
 //   B6 .bar-number has a minimum width in ch, so the tracks start on one line;
 //   B7 the old tier colours are still there (green, yellow, red);
-//   B8 style="..." is not used for the width (CSP style-src 'self').
+//   B8 style="..." is not used for the width (CSP style-src 'self');
+//   B9 .bar-container stacks the number above the track (flex-direction:
+//      column, align-items: stretch). Side by side, the track's own minimum
+//      width (60-100 px) widened the Award amount column by ~70 px: the NIH
+//      table (10 rows) overflowed its box at 768 px (715 > 702) and at 556 px
+//      (706 > 490), the titles wrapped one word per line. Stacked, the column
+//      is as wide as the number: 702 = 702 at 768 px, 626 at 556 px, the table
+//      is 16 % shorter at 768 px, and the bar stays visible (43-52 px).
 // A rule or function that cannot be found is a FAIL, never a silent pass.
 "use strict";
 const fs = require("fs");
@@ -56,9 +63,9 @@ check("B1 the fill is inside a .bar-track", /<div class="bar-track"><div class="
 
 const track = rule(".bar-track");
 check("B2 .bar-track rule found", track !== null);
-check("B2 flex: 1 and max-width", track !== null && /flex:\s*1\b/.test(track) && /max-width:\s*\d+px/.test(track));
-check("B2 min-width (clamp)", track !== null && /min-width:\s*clamp\(/.test(track));
-check("B2 height 14px and a background", track !== null && /height:\s*14px/.test(track) && /background:/.test(track));
+check("B2 width: 100%", track !== null && /(^|[;\s])width:\s*100%/.test(track));
+check("B2 no own minimum width (no clamp)", track !== null && !/min-width:/.test(track) && !/clamp\(/.test(track));
+check("B2 height 8px and a background", track !== null && /height:\s*8px/.test(track) && /background:/.test(track));
 
 const chart = rule(".bar-chart");
 check("B3 .bar-chart rule found", chart !== null);
@@ -76,6 +83,11 @@ check("B6 min-width in ch (>= 6ch)", num !== null && /min-width:\s*([6-9]|\d\d)c
 
 check("B7 tier colours kept", ["green", "yellow", "red"].every(t => new RegExp("\\.bar-chart\\." + t + "\\s*\\{").test(css)));
 check("B8 no style=\" in moneyBar", mb !== "" && !/style=/.test(mb));
+
+const box = rule(".bar-container");
+check("B9 .bar-container rule found", box !== null);
+check("B9 number above the track (flex-direction: column)", box !== null && /display:\s*flex/.test(box) && /flex-direction:\s*column/.test(box));
+check("B9 the track spans the column (align-items: stretch)", box !== null && /align-items:\s*stretch/.test(box));
 
 console.log("\n" + (ran - failed) + "/" + ran + " passed");
 process.exit(failed ? 1 : 0);
