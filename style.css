@@ -339,8 +339,9 @@
     .dl-badge.gray   { color: #999; }
     /* money bars */
     .bar-container { display: flex; align-items: center; gap: 8px; }
-    .bar-number { font-weight: 700; min-width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
-    .bar-chart { height: 14px; border-radius: 4px; flex: 1; max-width: 110px; opacity: 0.85; }
+    .bar-number { font-weight: 700; min-width: 6ch; text-align: right; font-variant-numeric: tabular-nums; }
+    .bar-track { flex: 1; max-width: 150px; min-width: clamp(60px, calc(50px + 4vw), 100px); height: 14px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
+    .bar-chart { display: block; width: 0; height: 100%; border-radius: 4px; opacity: 0.85; }
     .bar-chart.green  { background: linear-gradient(90deg, #22c55e, #86efac); }
     .bar-chart.yellow { background: linear-gradient(90deg, #fbbf24, #fde68a); }
     .bar-chart.red    { background: linear-gradient(90deg, #ef4444, #fca5a5); }

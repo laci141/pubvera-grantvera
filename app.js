@@ -105,18 +105,27 @@
       if (days < 7)  return '<span class="dl-badge yellow">' + esc(iso) + '</span>';
       return '<span class="dl-badge gray">' + esc(iso) + '</span>';
     }
-    // money bar with green/yellow/red tier relative to max
+    // money bar with green/yellow/red tier relative to max. The share is NOT
+    // rounded to a whole percent (on skewed data a 300 and a 286 award both
+    // became 15 % and the small ones all became the same sliver); three
+    // decimals keep them apart. The fill sits in a fixed .bar-track: a bare
+    // flex:1 bar shrinks to nothing when the row is tight (measured 16 px at
+    // 1280, 0 px at 390), so every bar was the same width or invisible.
     function moneyBar(amount, max) {
-      const pct = Math.max(2, Math.round(amount / Math.max(1, max) * 100));
+      const pct = amount > 0 ? Math.max(0.001, amount / Math.max(1, max) * 100) : 0;
       const tier = pct >= 66 ? 'green' : pct >= 33 ? 'yellow' : 'red';
       return '<div class="bar-container"><span class="bar-number">' + formatMoney(amount) + '</span>' +
-             '<div class="bar-chart ' + tier + '" data-pct="' + pct + '"></div></div>';
+             '<div class="bar-track"><div class="bar-chart ' + tier + '" data-pct="' + pct.toFixed(3) + '"></div></div></div>';
     }
     // The width is set through the CSSOM, not an inline style attribute, so
     // the page needs no inline style under style-src 'self'. Call after every
     // innerHTML that can contain moneyBar() output; sel names that element.
+    // max(2px, v%): every non-zero amount shows a visible bar; 0 gets no fill.
     function applyBarWidths(sel) {
-      document.querySelectorAll(sel + ' .bar-chart[data-pct]').forEach(b => { b.style.width = b.dataset.pct + '%'; });
+      document.querySelectorAll(sel + ' .bar-chart[data-pct]').forEach(b => {
+        const v = Number(b.dataset.pct);
+        b.style.width = v > 0 ? 'max(2px, ' + v + '%)' : '0';
+      });
     }
 
     // --- data model ---------------------------------------------------------

@@ -362,13 +362,19 @@ test("money bars get their width through the CSSOM", async ({ page }) => {
   await expect(page.locator("#nih_tw .bar-chart")).toHaveCount(2);
   const bars = () => page.evaluate(() => Array.from(document.querySelectorAll("#nih_tw .bar-chart"), b =>
     b.dataset.pct + " " + b.style.width + " " + (parseFloat(getComputedStyle(b).width) > 0)));
-  // Unsorted, so in fixture order: 100 % and 25 % of the largest award.
-  expect(await bars()).toEqual(["100 100% true", "25 25% true"]);
+  // Unsorted, so in fixture order: 100 % and 25 % of the largest award. The
+  // share has three decimals and the CSSOM width keeps a 2 px minimum.
+  expect(await bars()).toEqual(["100.000 max(2px, 100%) true", "25.000 max(2px, 25%) true"]);
+  // The fills sit in a fixed track, so the drawn lengths follow the values:
+  // 100 % is four times 25 %, not the same length as before.
+  const px = await page.evaluate(() => Array.from(document.querySelectorAll("#nih_tw .bar-chart"), b => b.getBoundingClientRect().width));
+  expect(px[0]).toBeGreaterThan(px[1] * 3.5);
+  expect(px[0]).toBeLessThan(px[1] * 4.5);
   // A re-render (the result filter) sets the width again; the maximum is now
   // the one remaining row.
   await page.locator("#nih-results .qfilter").fill("R01-2");
   await expect(page.locator("#nih_tw .bar-chart")).toHaveCount(1);
-  expect(await bars()).toEqual(["100 100% true"]);
+  expect(await bars()).toEqual(["100.000 max(2px, 100%) true"]);
   expect(await page.evaluate(() => window.__cspViolations)).toEqual([]);
   expectNoCSPViolations(log);
 });
