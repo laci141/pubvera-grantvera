@@ -509,3 +509,10 @@
     #modal-open { --color: #00d4ff; }
     #modal-nih { --color: #7c3aed; }
     #modal-nsf { --color: #22c55e; }
+    /* respect the OS reduce-motion setting; the spinner stays (status indicator) */
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .modal, .modal-content, .results { animation: none; }
+      *, *::before, *::after { transition: none !important; }
+      .chip:hover, .bento-card:hover, .btn:hover, .btn:active { transform: none; }
+    }
