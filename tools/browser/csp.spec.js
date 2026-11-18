@@ -348,7 +348,7 @@ test("each modal gets its colour from style.css", async ({ page }) => {
   }));
   expect(colours).toEqual([
     "#00d4ff rgb(0, 212, 255)",
-    "#7c3aed rgb(124, 58, 237)",
+    "#a78bfa rgb(167, 139, 250)",
     "#22c55e rgb(34, 197, 94)",
   ]);
   expectNoCSPViolations(log);
