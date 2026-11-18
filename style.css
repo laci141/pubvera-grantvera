@@ -42,8 +42,8 @@
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 1rem;
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
 
@@ -160,14 +160,14 @@
 
     /* HERO */
     .hero {
-      min-height: 50vh;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
       /* 5rem here used to be clearance for the floating brand pill; body's
          measured padding-top does that job now, so this is spacing only. */
-      padding: 2rem 2rem 2rem;
+      padding: 3rem 2rem 1.5rem;
       text-align: center;
     }
     .hero h1 {
@@ -179,19 +179,22 @@
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    .hero p { font-size: 1.15rem; color: #aaa; max-width: 740px; margin-bottom: 2rem; }
+    .hero p { font-size: 1.15rem; color: #aaa; max-width: 740px; margin-bottom: 2rem; text-wrap: balance; }
     .chips { display: flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center; }
     .chip {
       background: rgba(255,255,255,0.06);
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 2rem;
       padding: 0.5rem 1.2rem;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
       cursor: pointer;
       color: #ccc;
       font-size: 0.9rem;
       transition: all 0.25s ease;
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
     }
     .chip:hover { border-color: #00d4ff; color: #00d4ff; transform: translateY(-2px); }
 
@@ -220,9 +223,10 @@
       box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
     }
     .bento-card.open { --color: #00d4ff; border-left: 4px solid var(--color); }
-    .bento-card.nih  { --color: #7c3aed; border-left: 4px solid var(--color); }
+    .bento-card.nih  { --color: #a78bfa; border-left: 4px solid var(--color); }
     .bento-card.nsf  { --color: #22c55e; border-left: 4px solid var(--color); }
     .bento-icon { font-size: 3rem; margin-bottom: 0.75rem; }
+    .bento-icon svg { display: block; width: 3rem; height: 3rem; color: var(--color); }
     .bento-label { font-size: 1.3rem; font-weight: 600; color: var(--color); margin-bottom: 0.5rem; }
     .bento-desc { font-size: 0.92rem; color: #aaa; }
     /* The cards are native buttons (keyboard focus, Enter and Space for free).
@@ -267,8 +271,8 @@
       width: 1000px;
       max-height: 85vh;
       overflow-y: auto;
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
       box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
       animation: slideUp 0.3s ease;
     }
@@ -278,6 +282,7 @@
     }
     .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
     .modal-header h2 { font-size: 1.7rem; color: var(--color, #00d4ff); }
+    .modal-header h2 .title-icon { width: 1.2em; height: 1.2em; vertical-align: -0.15em; margin-right: 0.35rem; }
     .close-btn { background: none; border: none; color: #999; font-size: 2rem; cursor: pointer; line-height: 1; }
     .close-btn:hover { color: #e0e0e0; }
 
@@ -318,7 +323,7 @@
     table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
     th { color: #999; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; }
     th, td { text-align: left; padding: 0.5rem 0.7rem 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: top; }
-    td.n, th.n { color: #666; width: 2.4rem; }
+    td.n, th.n { color: #9aa5b1; width: 2.4rem; }
     .table-wrap { overflow-x: auto; }
     .mono { font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; color: #9cc; }
     th.sortable { cursor: pointer; user-select: none; transition: color 0.2s ease; }
@@ -444,8 +449,8 @@
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 1rem;
       padding: 1.1rem 1.3rem;
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
     .errcard h4 { font-size: 1.02rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem; }
@@ -461,7 +466,7 @@
     footer {
       text-align: center;
       padding: 2.5rem 1rem;
-      color: #666;
+      color: #9aa5b1;
       border-top: 1px solid rgba(255, 255, 255, 0.05);
       margin-top: 2rem;
       font-size: 0.9rem;
@@ -507,7 +512,7 @@
       }
     }
     #modal-open { --color: #00d4ff; }
-    #modal-nih { --color: #7c3aed; }
+    #modal-nih { --color: #a78bfa; }
     #modal-nsf { --color: #22c55e; }
     /* respect the OS reduce-motion setting; the spinner stays (status indicator) */
     @media (prefers-reduced-motion: reduce) {
