@@ -40,7 +40,10 @@ COPY index.html app.js app-module.js style.css /out/
 FROM alpine:3.24
 # The unprivileged user the server runs as (see USER below). UID 10001 is the
 # same as pubvera-bibliovera, so host-side checks use one number everywhere.
-RUN apk add --no-cache ca-certificates && adduser -D -u 10001 app
+# zlib 1.3.2-r1 has CVE-2026-4738 (fixed in 1.4-r0); libcrypto3/libssl3 3.5.9-r0
+# have OpenSSL CVE-2026-95692, -107496, -95691, -88823, -88822 (fixed in 3.5.9-r1).
+# Upgraded by name so the change stays reviewable; never a bare apk upgrade.
+RUN apk add --no-cache ca-certificates && apk upgrade --no-cache zlib libcrypto3 libssl3 && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=web-builder /out/server ./server
 COPY --from=web-builder /out/index.html ./index.html
